@@ -1,0 +1,33 @@
+# main に push するとビルドし、Xserver の FTP に dist をアップロードする
+# 事前に GitHub の Settings → Secrets and variables → Actions で
+# FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_REMOTE_DIR を設定してください。
+
+name: Deploy to Xserver
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Deploy to Xserver via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: ${{ secrets.FTP_REMOTE_DIR }}
+          dangerous-clean-slate: false
