@@ -1219,14 +1219,9 @@ function KanbanApp({ currentUser = 'ログインユーザー' }) {
                   <div className="flex gap-2 h-full w-full min-w-0">
                     {boardColumns.map(col => {
                       const columnStatuses = getColumnStatuses(col);
-                      const columnTasks = hideColumnCards(col.id) ? [] : filteredTasks.filter(t => {
-                        if (columnStatuses.includes(t.status)) return true;
-                        if (currentBoardId === 'planning' && t.status !== 'received' && t.status !== 'unscheduled' && t.inDate && ['mon','tue','wed','thu','fri','sat','sun'].includes(col.id)) {
-                          const dayMap = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
-                          return new Date(t.inDate).getDay() === dayMap[col.id];
-                        }
-                        return false;
-                      });
+                      const columnTasks = hideColumnCards(col.id)
+                        ? []
+                        : filteredTasks.filter(t => columnStatuses.includes(t.status));
                       return (
                         <div key={col.id} className={`min-w-0 flex-1 flex flex-col rounded-md border border-gray-200 flex-shrink ${currentBoardId === 'planning' ? 'bg-gray-400' : 'bg-gray-50'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col)}>
                           <div className={`p-3 font-semibold flex justify-between items-center text-sm border-b border-gray-200 rounded-t-md ${currentBoardId === 'planning' ? 'bg-white text-gray-800' : 'bg-gray-100 text-gray-700'}`}>
@@ -1237,7 +1232,14 @@ function KanbanApp({ currentUser = 'ログインユーザー' }) {
                           </div>
                           <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[100px]">
                             {columnTasks.map(task => (
-                              <div key={task.id} draggable onDragStart={(e) => handleDragStart(e, task.id)} onClick={() => setSelectedTaskId(task.id)} className={`bg-white rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${task.color === 'bg-white' ? '' : task.color} ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}>
+                              <div
+                                key={task.id}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, task.id)}
+                                onClick={() => setSelectedTaskId(task.id)}
+                                title={task.description || ''}
+                                className={`bg-white rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${task.color === 'bg-white' ? '' : task.color} ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
+                              >
                                  {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
                                 {(task.loanerType && task.loanerType !== 'none') && (
                                   <div className="flex justify-end items-start mb-1 text-[10px]">
