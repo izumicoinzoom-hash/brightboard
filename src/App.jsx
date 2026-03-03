@@ -1314,12 +1314,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
     const db = getFirestoreDb();
     if (!db) return;
     const unsubscribeTasks = subscribeCollection('boards/main/tasks', (items) => {
-      if (Array.isArray(items) && items.length > 0) setTasks(items);
-      else setTasks([]);
+      if (Array.isArray(items) && items.length > 0) {
+        setTasks(items);
+      }
+      // 0件の場合は「何もない」というサーバー状態だが、
+      // ローカルの編集中データを消してしまわないよう、明示的なクリアはしない
     });
     const unsubscribeReservations = subscribeCollection('boards/main/reservations', (items) => {
-      if (Array.isArray(items) && items.length > 0) setReservations(items);
-      else setReservations([]);
+      if (Array.isArray(items) && items.length > 0) {
+        setReservations(items);
+      }
     });
     return () => {
       unsubscribeTasks && unsubscribeTasks();
