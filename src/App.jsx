@@ -2240,9 +2240,46 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         statusHistory: t.statusHistory
       };
     }));
-    if (updatedTask.loanerCarId && updatedTask.inDate) {
-      setReservations(prev => prev.map(r => r.taskId === updatedTask.id ? { ...r, start: updatedTask.inDate, end: updatedTask.outDate || updatedTask.inDate, carId: updatedTask.loanerCarId, taskName: `${updatedTask.assignee || ''} ${updatedTask.car || ''}`.trim() || r.taskName } : r));
-    }
+
+    // 代車情報とガントチャート予約の連動
+    const hasLoaner =
+      updatedTask.loanerType &&
+      updatedTask.loanerType !== 'none' &&
+      updatedTask.loanerCarId &&
+      updatedTask.inDate;
+
+    setReservations(prev => {
+      const current = prev.filter(r => r.taskId === updatedTask.id);
+      const others = prev.filter(r => r.taskId !== updatedTask.id);
+
+      // 代車なしに変更された場合は予約を削除
+      if (!hasLoaner) {
+        if (isFirebaseConfigured()) {
+          current.forEach(r => {
+            deleteDocument('boards/main/reservations', r.id).catch(() => {});
+          });
+        }
+        return others;
+      }
+
+      const baseId = current[0]?.id || `res${Date.now()}`;
+      const reservation = {
+        id: baseId,
+        carId: updatedTask.loanerCarId,
+        taskId: updatedTask.id,
+        taskName: `${updatedTask.assignee || '未設定'} ${updatedTask.car || '新規車両'}`.trim(),
+        start: updatedTask.inDate,
+        end: updatedTask.outDate || updatedTask.inDate,
+        color: updatedTask.color || 'bg-blue-400'
+      };
+
+      if (isFirebaseConfigured()) {
+        upsertDocument('boards/main/reservations', baseId, reservation).catch(() => {});
+      }
+
+      return [...others, reservation];
+    });
+
     if (isFirebaseConfigured()) {
       upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
       if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, updatedTask.status)) {
