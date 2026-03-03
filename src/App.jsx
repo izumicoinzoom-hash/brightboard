@@ -162,7 +162,7 @@ const CAR_MODELS = {
 
   // --- ドイツ車 ---
   "メルセデス・ベンツ": [
-    "Aクラス", "Bクラス", "Cクラス", "Eクラス", "Sクラス",
+    "Aクラス", "Bクラス", "Cクラス", "Eクラス", "Sクラス", "CLS",
     "GLA", "GLB", "GLC", "GLE", "GLS", "Gクラス",
     "SL", "SLC", "AMG GT", "Vクラス",
     "EQA", "EQB", "EQC", "EQE", "EQS"
