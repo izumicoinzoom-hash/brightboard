@@ -274,8 +274,8 @@ const CAR_MODELS = {
 };
 
 // --- 担当者マスター ---
-// 受付担当者はログインユーザーに固定せず、任意の一覧から選択する
-const RECEPTION_STAFF_OPTIONS = [];
+// 受付担当者はログインユーザーに固定せず、任意の一覧から選択する（初期値はFirestoreで各PC共通に同期される）
+const RECEPTION_STAFF_OPTIONS = ['米田', '鶴田', 'あすか', '佃'];
 const BODY_STAFF_OPTIONS = ['木下', '竹馬', 'チャス', 'アビアン'];   // 板金担当者
 const PAINT_STAFF_OPTIONS = ['野中', '小田', '佐藤', 'アグン', 'リズキ'];    // 塗装担当者
 
@@ -1741,7 +1741,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       const doc = items.find((it) => it.id === 'staffOptions');
       if (!doc) return;
       const next = {
-        reception: Array.isArray(doc.reception) ? doc.reception.filter((s) => typeof s === 'string') : [],
+        reception: Array.isArray(doc.reception) && doc.reception.length > 0
+          ? doc.reception.filter((s) => typeof s === 'string')
+          : [...RECEPTION_STAFF_OPTIONS],
         body: Array.isArray(doc.body) ? doc.body.filter((s) => typeof s === 'string') : [],
         paint: Array.isArray(doc.paint) ? doc.paint.filter((s) => typeof s === 'string') : [],
       };
