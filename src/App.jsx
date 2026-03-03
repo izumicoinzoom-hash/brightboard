@@ -279,6 +279,9 @@ const RECEPTION_STAFF_OPTIONS = [];
 const BODY_STAFF_OPTIONS = ['木下', '竹馬', 'チャス', 'アビアン'];   // 板金担当者
 const PAINT_STAFF_OPTIONS = ['野中', '小田', '佐藤', 'アグン', 'リズキ'];    // 塗装担当者
 
+// --- カードの色オプション（全コンポーネント共通）---
+const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray-100', 'bg-red-100'];
+
 // --- 代車・レンタカー マスター ---
 const LOANER_OPTIONS = [
   { id: 'none', label: '不要 (なし)' },
@@ -1986,7 +1989,6 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       && (!searchFilters.color || (task.color || 'bg-white') === searchFilters.color);
   };
   const filteredTasks = tasks.filter(matchesSearch);
-  const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray-100', 'bg-red-100'];
   const hasActiveFilters = Object.values(searchFilters).some(v => v && v.trim() !== '');
 
   // 納車ボード: 支払い済み列は表示しない。完了に置いたカードは看板に表示しない（データは残す）
