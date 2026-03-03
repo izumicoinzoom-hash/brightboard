@@ -1398,6 +1398,33 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
           <div key={i} className={`w-2.5 h-2.5 rounded-full border border-gray-400 ${dotColor === 'red' ? 'bg-red-500' : dotColor === 'blue' ? 'bg-blue-500' : dotColor === 'yellow' ? 'bg-yellow-400' : dotColor === 'green' ? 'bg-green-500' : dotColor === 'purple' ? 'bg-purple-500' : 'bg-white'}`}></div>
         ))}
       </div>
+      {/* ホバー時の説明＋画像サムネイルポップアップ */}
+      {(task.description || (Array.isArray(task.attachments) && task.attachments.some(att => att.type === 'image'))) && (
+        <div className="pointer-events-none absolute inset-x-0 -top-1/2 z-40 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="mx-auto max-w-xs rounded-lg shadow-xl bg-white border border-gray-200 p-2 text-[11px] text-gray-800">
+            {task.description && (
+              <div className="mb-1 line-clamp-3 whitespace-pre-wrap break-words">
+                {task.description}
+              </div>
+            )}
+            {Array.isArray(task.attachments) && (
+              (() => {
+                const img = task.attachments.find(att => att.type === 'image' && att.data);
+                if (!img) return null;
+                return (
+                  <div className="mt-1">
+                    <img
+                      src={img.data}
+                      alt={img.name || 'attachment'}
+                      className="w-full max-h-32 object-contain rounded border border-gray-200 bg-gray-50"
+                    />
+                  </div>
+                );
+              })()
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
