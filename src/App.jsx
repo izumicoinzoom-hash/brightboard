@@ -97,7 +97,7 @@ const CAR_MODELS = {
   // --- 国産メーカー ---
   "トヨタ": [
     "ヤリス", "アクア", "パッソ", "ルーミー", "カローラ", "カローラスポーツ", "カローラツーリング",
-    "クラウン", "センチュリー", "カムリ", "プリウス",
+    "クラウン", "センチュリー", "カムリ", "プリウス", "マークX",
     "ポルテ", "スペイド",
     "アルファード", "ヴェルファイア", "ノア", "ヴォクシー", "エスクァイア", "シエンタ", "グランエース", "エスティマ", "ウィッシュ",
     "ランドクルーザー", "ランドクルーザー70", "ランドクルーザープラド", "ハリアー", "RAV4", "C-HR", "ヤリスクロス", "カローラクロス", "ライズ", "FJクルーザー",
@@ -1827,11 +1827,54 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     });
   }, [fleetCars]);
 
+  const handleCardDrop = (e, targetTaskId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return;
+    const getOrder = (t) => (typeof t.order === 'number' ? t.order : null);
+    setTasks((prev) => {
+      const dragged = prev.find((t) => t.id === draggedTaskId);
+      const target = prev.find((t) => t.id === targetTaskId);
+      if (!dragged || !target || !dragged.status || dragged.status !== target.status) return prev;
+      const sameStatus = prev
+        .filter((t) => t.status === dragged.status)
+        .slice()
+        .sort((a, b) => {
+          const oa = getOrder(a);
+          const ob = getOrder(b);
+          if (oa != null && ob != null) return oa - ob;
+          if (oa != null) return -1;
+          if (ob != null) return 1;
+          return 0;
+        });
+      const fromIndex = sameStatus.findIndex((t) => t.id === dragged.id);
+      const toIndex = sameStatus.findIndex((t) => t.id === target.id);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+      const reordered = sameStatus.slice();
+      const [moved] = reordered.splice(fromIndex, 1);
+      const insertIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+      reordered.splice(insertIndex, 0, moved);
+      reordered.forEach((t, index) => {
+        t.order = index;
+      });
+      if (isFirebaseConfigured()) {
+        reordered.forEach((t) => {
+          upsertDocument('boards/main/tasks', t.id, t).catch(() => {});
+        });
+      }
+      const byId = new Map(reordered.map((t) => [t.id, t]));
+      return prev.map((t) => (byId.has(t.id) ? { ...t, order: byId.get(t.id).order } : t));
+    });
+    setDraggedTaskId(null);
+  };
+
   const renderTaskCard = (task) => (
     <div
       key={task.id}
       draggable
       onDragStart={(e) => handleDragStart(e, task.id)}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
+      onDrop={(e) => handleCardDrop(e, task.id)}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
       className={`bg-white rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${task.color === 'bg-white' ? '' : task.color} ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
@@ -2055,24 +2098,19 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       if (currentIndex === -1) return prev;
       const targetIndex = currentIndex + idxChange;
       if (targetIndex < 0 || targetIndex >= sameStatus.length) return prev;
-      const swapped = sameStatus.slice();
-      const tmp = swapped[currentIndex];
-      swapped[currentIndex] = swapped[targetIndex];
-      swapped[targetIndex] = tmp;
-      swapped.forEach((t, index) => {
+      const reordered = sameStatus.slice();
+      const [moved] = reordered.splice(currentIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      reordered.forEach((t, index) => {
         t.order = index;
       });
-      const changedIds = new Set(swapped.map((t) => t.id));
-      const next = prev.map((t) => {
-        const updated = swapped.find((s) => s.id === t.id);
-        return updated ? { ...t, order: updated.order } : t;
-      });
       if (isFirebaseConfigured()) {
-        swapped.forEach((t) => {
+        reordered.forEach((t) => {
           upsertDocument('boards/main/tasks', t.id, t).catch(() => {});
         });
       }
-      return next;
+      const byId = new Map(reordered.map((t) => [t.id, t]));
+      return prev.map((t) => (byId.has(t.id) ? { ...t, order: byId.get(t.id).order } : t));
     });
   };
 
