@@ -1858,14 +1858,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       }
     });
     const unsubscribeFleet = subscribeCollection('fleetCars', (items) => {
-      if (Array.isArray(items) && items.length > 0) {
-        setFleetCars(items);
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(items));
-          }
-        } catch (_) {}
-      }
+      const list = Array.isArray(items) ? items : [];
+      setFleetCars(list);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(list));
+        }
+      } catch (_) {}
     });
     return () => {
       unsubscribeTasks && unsubscribeTasks();
@@ -3775,30 +3774,30 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                   title="PDFまたは画像を選択"
                 />
               </div>
+              {onMasterDelete && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = window.prompt('マスター削除用のパスコードを入力してください。');
+                      if (code === null) return;
+                      if (code !== '0514') {
+                        window.alert('パスコードが違います。');
+                        return;
+                      }
+                      if (window.confirm('このカードを完全に削除します。紐づく代車予約も削除されます。よろしいですか？')) {
+                        onMasterDelete(task.id);
+                      }
+                    }}
+                    className="w-full mt-1 inline-flex items-center justify-center px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-sm"
+                  >
+                    マスター権限で削除
+                  </button>
+                </div>
+              )}
             </div>
           </Accordion>
         </div>
-        {onMasterDelete && (
-          <div className="px-4 pb-4">
-            <button
-              type="button"
-              onClick={() => {
-                const code = window.prompt('マスター削除用のパスコードを入力してください。');
-                if (code === null) return;
-                if (code !== '0514') {
-                  window.alert('パスコードが違います。');
-                  return;
-                }
-                if (window.confirm('このカードを完全に削除します。紐づく代車予約も削除されます。よろしいですか？')) {
-                  onMasterDelete(task.id);
-                }
-              }}
-              className="w-full mt-2 inline-flex items-center justify-center px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-sm"
-            >
-              マスター権限で削除
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
