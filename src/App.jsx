@@ -3768,7 +3768,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 <input
                   type="file"
                   accept="image/*,.pdf"
-                  capture="environment"
+                  multiple
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   title="PDFまたは画像を選択"
