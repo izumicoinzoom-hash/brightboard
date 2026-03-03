@@ -176,6 +176,8 @@ const CALENDAR_PENDING_KEY = 'brightboard_calendar_pending';
 const COLUMN_WIDTH_KEY = 'brightboard_column_width';
 const BOARD_COLUMNS_KEY = 'brightboard_board_columns';
 const STAFF_OPTIONS_KEY = 'brightboard_staff_options';
+const TASKS_CACHE_KEY = 'brightboard_tasks';
+const RESERVATIONS_CACHE_KEY = 'brightboard_reservations';
 
 function getStaffOptionsConfig() {
   try {
@@ -1213,8 +1215,26 @@ function CalendarLinkModal({ onClose }) {
 function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
   const [currentView, setCurrentView] = useState('board');
   const [currentBoardId, setCurrentBoardId] = useState('main');
-  const [tasks, setTasks] = useState([]);
-  const [reservations, setReservations] = useState([]);
+  const [tasks, setTasks] = useState(() => {
+    try {
+      if (typeof localStorage === 'undefined') return [];
+      const raw = localStorage.getItem(TASKS_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [reservations, setReservations] = useState(() => {
+    try {
+      if (typeof localStorage === 'undefined') return [];
+      const raw = localStorage.getItem(RESERVATIONS_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [fleetCars, setFleetCars] = useState([...FLEET_CARS]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
@@ -1302,6 +1322,23 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
   useOutsideClick(searchMenuRef, () => setIsSearchMenuOpen(false));
   useOutsideClick(accountMenuRef, () => setIsAccountMenuOpen(false));
   const enableWeekGrouping = currentBoardId === 'planning';
+
+  // ローカルキャッシュ（ブラウザ単位）に保存
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
+      }
+    } catch (_) {}
+  }, [tasks]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(RESERVATIONS_CACHE_KEY, JSON.stringify(reservations));
+      }
+    } catch (_) {}
+  }, [reservations]);
 
   // Firestore リアルタイム購読（タスク・代車予約）
   useEffect(() => {
