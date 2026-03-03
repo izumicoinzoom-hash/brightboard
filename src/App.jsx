@@ -1970,6 +1970,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         if (u) attachments.push({ type: 'image', name: `calendar_${i + 1}.jpg`, data: u });
       });
     }
+    const loanerTypeParam = (params.get('loanerType') || 'none').trim();
+    const allowedLoanerIds = LOANER_OPTIONS.map((o) => o.id);
+    const loanerType = allowedLoanerIds.includes(loanerTypeParam) ? loanerTypeParam : 'none';
+    const loanerCarId = (params.get('loanerCarId') || '').trim();
+
     const newTask = {
       id: `t${Date.now()}`,
       status,
@@ -1982,7 +1987,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       inDate: inDate || '',
       inTime: inTime || '',
       outDate: '',
-      loanerType: 'none',
+      loanerType,
+      loanerCarId,
       dots: ['white', 'white', 'white', 'white'],
       characters: [],
       tasks: [],
@@ -1993,6 +1999,20 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     setTasks(prev => [...prev, newTask]);
     if (isFirebaseConfigured()) {
       upsertDocument('boards/main/tasks', newTask.id, newTask);
+      if (newTask.loanerCarId && newTask.inDate) {
+        const resId = `res${Date.now()}`;
+        const reservation = {
+          id: resId,
+          carId: newTask.loanerCarId,
+          taskId: newTask.id,
+          taskName: `${newTask.assignee || '未設定'} ${newTask.car || '新規車両'}`.trim(),
+          start: newTask.inDate,
+          end: newTask.outDate || newTask.inDate,
+          color: newTask.color || 'bg-blue-400'
+        };
+        setReservations(prev => [...prev, reservation]);
+        upsertDocument('boards/main/reservations', resId, reservation).catch(() => {});
+      }
     }
     setCurrentBoardId('planning');
     setCurrentView('board');
