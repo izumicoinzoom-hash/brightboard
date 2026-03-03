@@ -86,13 +86,23 @@ export function subscribeCollection(path, onChange) {
   const database = getFirestoreDb();
   if (!database) return () => {};
   const colRef = collection(database, path);
-  return onSnapshot(colRef, (snapshot) => {
-    const items = snapshot.docs.map(docSnap => ({
-      id: docSnap.id,
-      ...docSnap.data()
-    }));
-    onChange(items);
-  });
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const items = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      onChange(items);
+    },
+    (error) => {
+      // パーミッションエラーなどで snapshot listener が失敗しても、
+      // アプリ全体がクラッシュしないようにする（ログだけ残す）
+      if (typeof console !== 'undefined') {
+        console.warn('Firestore subscribeCollection error for path:', path, error);
+      }
+    }
+  );
 }
 
 export async function upsertDocument(path, id, data) {
