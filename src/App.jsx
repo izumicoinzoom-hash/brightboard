@@ -610,6 +610,16 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
   const resizeDataRef = useRef({ res: null, timelineRect: null });
 
   const today = new Date();
+  const handleAddCar = async () => {
+    if (!newCarName.trim()) return;
+    const id = `f${Date.now()}`;
+    const car = { id, name: newCarName.trim(), type: newCarType, status: 'active', inspectionExpiry: '' };
+    setFleetCars(prev => [...prev, car]);
+    try {
+      await upsertDocument('fleet/cars', id, car);
+    } catch (_) {}
+    setNewCarName('');
+  };
   const daysRange = 14; // 2週間分表示
   const viewStartOffset = -3; // 表示開始を今日の3日前から
   const dates = Array.from({ length: daysRange }).map((_, i) => {
@@ -993,14 +1003,19 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
   const [newCarName, setNewCarName] = useState('');
   const [newCarType, setNewCarType] = useState(FLEET_TYPE_OPTIONS[0]);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newCarName.trim()) return;
     const id = `f${Date.now()}`;
-    setFleetCars(prev => [...prev, { id, name: newCarName.trim(), type: newCarType, status: 'active', inspectionExpiry: '' }]);
+    const car = { id, name: newCarName.trim(), type: newCarType, status: 'active', inspectionExpiry: '' };
+    setFleetCars(prev => [...prev, car]);
+    // Firestore 反映（失敗してもローカルはそのまま）
+    try {
+      await upsertDocument('fleet/cars', id, car);
+    } catch (_) {}
     setNewCarName('');
   };
 
-  const handleRemove = (car) => {
+  const handleRemove = async (car) => {
     const hasRes = reservations.some(r => r.carId === car.id);
     if (hasRes && !window.confirm(`「${car.name}」に予約が入っています。削除すると予約も解除され、紐づくカードの代車情報もクリアされます。削除しますか？`)) return;
     setFleetCars(prev => prev.filter(c => c.id !== car.id));
@@ -1008,14 +1023,29 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
       setReservations(prev => prev.filter(r => r.carId !== car.id));
       if (setTasks) setTasks(prev => prev.map(t => t.loanerCarId === car.id ? { ...t, loanerCarId: '', loanerType: 'none' } : t));
     }
+    try {
+      await deleteDocument('fleet/cars', car.id);
+    } catch (_) {}
   };
 
-  const handleStatusChange = (carId, status) => {
+  const handleStatusChange = async (carId, status) => {
     setFleetCars(prev => prev.map(c => c.id === carId ? { ...c, status } : c));
+    try {
+      const target = fleetCars.find(c => c.id === carId);
+      if (target) {
+        await upsertDocument('fleet/cars', carId, { ...target, status });
+      }
+    } catch (_) {}
   };
 
-  const handleExpiryChange = (carId, value) => {
+  const handleExpiryChange = async (carId, value) => {
     setFleetCars(prev => prev.map(c => c.id === carId ? { ...c, inspectionExpiry: value } : c));
+    try {
+      const target = fleetCars.find(c => c.id === carId);
+      if (target) {
+        await upsertDocument('fleet/cars', carId, { ...target, inspectionExpiry: value });
+      }
+    } catch (_) {}
   };
 
   return (
@@ -1581,12 +1611,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     } catch (_) {}
   }, [fleetCars]);
 
-  // Firestore リアルタイム購読（タスク・代車予約）
+  // Firestore リアルタイム購読（タスク・代車予約・代車マスタ）
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       // Firebase 未設定時はローカルのダミーデータを使用
       setTasks(INITIAL_TASKS);
       setReservations(INITIAL_RESERVATIONS);
+      setFleetCars(prev => (Array.isArray(prev) && prev.length > 0) ? prev : [...FLEET_CARS]);
       return;
     }
     const db = getFirestoreDb();
@@ -1603,9 +1634,20 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         setReservations(items);
       }
     });
+    const unsubscribeFleet = subscribeCollection('fleet/cars', (items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setFleetCars(items);
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(items));
+          }
+        } catch (_) {}
+      }
+    });
     return () => {
       unsubscribeTasks && unsubscribeTasks();
       unsubscribeReservations && unsubscribeReservations();
+      unsubscribeFleet && unsubscribeFleet();
     };
   }, []);
 
