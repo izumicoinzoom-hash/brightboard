@@ -83,10 +83,44 @@ const getWeekInfo = (dateStr) => {
 
 // 添付ファイル: { type: 'pdf'|'image', name: string, data: string }（data は dataURL または画像URL）
 const isImageType = (mime) => (mime || '').startsWith('image/');
+// 画像ファイルは Firestore の制限に収まるよう、クライアント側で縮小・圧縮してから dataURL 化する
 const readFileAsDataUrl = (file) =>
   new Promise((resolve, reject) => {
+    if (!isImageType(file.type)) {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+      return;
+    }
+
     const r = new FileReader();
-    r.onload = () => resolve(r.result);
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxSize = 1280; // 長辺最大ピクセル
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            const scale = Math.min(maxSize / width, maxSize / height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.7);
+          resolve(compressed);
+        } catch (err) {
+          // 失敗した場合は元のデータをそのまま使う
+          resolve(r.result);
+        }
+      };
+      img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+      img.src = r.result;
+    };
     r.onerror = reject;
     r.readAsDataURL(file);
   });
