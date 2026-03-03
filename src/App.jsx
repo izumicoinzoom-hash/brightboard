@@ -1589,15 +1589,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const deliveryCompletedTasks = useMemo(() => {
     if (currentBoardId !== 'delivery') return [];
     return tasks
-      .filter((t) => {
-        if (t.status !== 'completed') return false;
-        if (!Array.isArray(t.statusHistory)) return false;
-        return t.statusHistory.some((h) => h && h.status === 'delivery_today');
-      })
+      .filter((t) => t.status === 'completed')
       .slice()
       .sort((a, b) => {
-        const getTime = (t) => {
-          const d = t.outDate || t.statusEnteredAt;
+        const getTime = (task) => {
+          const d = task.outDate || task.statusEnteredAt;
           if (!d) return 0;
           const dt = new Date(d);
           return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
