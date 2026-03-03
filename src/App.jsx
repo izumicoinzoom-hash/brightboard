@@ -179,6 +179,21 @@ const STAFF_OPTIONS_KEY = 'brightboard_staff_options';
 const TASKS_CACHE_KEY = 'brightboard_tasks';
 const RESERVATIONS_CACHE_KEY = 'brightboard_reservations';
 
+const SHEET_SYNC_URL = import.meta.env.VITE_SHEET_SYNC_URL;
+
+async function syncCardToSheet(task) {
+  if (!SHEET_SYNC_URL) return;
+  try {
+    await fetch(SHEET_SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task)
+    });
+  } catch (_) {
+    // シート連携は補助的なため、失敗してもアプリ全体には影響させない
+  }
+}
+
 function getStaffOptionsConfig() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STAFF_OPTIONS_KEY) : null;
