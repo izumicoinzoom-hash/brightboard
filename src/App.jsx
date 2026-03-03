@@ -1935,6 +1935,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const renderTaskCard = (task) => {
     const receptionInitial = ((task.receptionStaff || task.assignee || '') || '').trim().charAt(0) || '';
     const entryDetailInitial = ((task.entryDetail || '') || '').trim().charAt(0) || '';
+    const hasLoaner = task.loanerType && task.loanerType !== 'none';
     return (
     <div
       key={task.id}
@@ -1947,21 +1948,24 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
-      {(task.loanerType && task.loanerType !== 'none') && (
-        <div className="flex justify-end items-start mb-1 text-[10px]">
-          <div className="flex items-center bg-green-100 text-green-800 px-1 rounded gap-0.5" title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}>
-            <Truck className="w-3 h-3" />
-            <span>代</span>
-          </div>
-        </div>
-      )}
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
-        <div className="flex items-center gap-1 mb-0.5">
-          {receptionInitial && (
-            <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-800 text-white text-[10px] font-medium" title="入庫担当者">{receptionInitial}</span>
-          )}
-          {entryDetailInitial && (
-            <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-300 text-gray-800 text-[10px] font-medium" title="入庫ジャンル詳細">{entryDetailInitial}</span>
+        <div className="flex items-center justify-between gap-1 mb-0.5 whitespace-nowrap">
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {receptionInitial && (
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-800 text-white text-[10px] font-medium" title="入庫担当者">{receptionInitial}</span>
+            )}
+            {entryDetailInitial && (
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-300 text-gray-800 text-[10px] font-medium" title="入庫ジャンル詳細">{entryDetailInitial}</span>
+            )}
+          </div>
+          {hasLoaner && (
+            <div
+              className="flex items-center bg-green-100 text-green-800 px-0.5 rounded gap-0.5 text-[9px] flex-shrink-0"
+              title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}
+            >
+              <Truck className="w-3 h-3 flex-shrink-0" />
+              <span className="flex-shrink-0">代</span>
+            </div>
           )}
         </div>
         {task.car} {task.number}<br/>{task.assignee}<br/>
