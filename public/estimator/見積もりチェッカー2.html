@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>見積もりチェッカー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800">
+  <div id="root"></div>
+  <noscript>
+    <div style="max-width: 680px; margin: 40px auto; padding: 16px; border: 1px solid #d1d5db; border-radius: 12px; font-family: sans-serif;">
+      このページは JavaScript を使用しています。ブラウザの設定で JavaScript を有効にしてください。
+    </div>
+  </noscript>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    // --- アイコンコンポーネント ---
+    const AlertCircle = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>);
+    const Car = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>);
+    const Info = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>);
+    const CheckSquare = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>);
+    const ClipboardList = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>);
+    const Wrench = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>);
+    const Check = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>);
+    const X = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
+    const HelpCircle = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);
+    const Printer = ({className}) => (<svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>);
+
+    // --- データ定義 (appliesTo: 'repair'=修理, 'new'=新品交換, 'used'=中古交換, 'all'=全作業共通) ---
+    // category: 'damage'=損傷確認系, 'labor'=工賃系
+    const partsData = {
+      "フロントバンパー": {
+        items: [
+          { name: "分解脱着（基本工数）", isKeyPoint: true, estimate: "0.8〜1.5h", hint: "車種により0.8〜1.5h。計算：交換工賃指数－脱着工賃指数×0.8", desc: "Fバンパー分解脱着の基本工数。スポイラー付・フォグ付・素地付は追加h。中古交換は新品取替と同じ。", adjusterNote: "脱着・修理は別々で選択すること（脱着のみ選択すると脱着費用が反映しない）。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "グリル", isKeyPoint: false, estimate: "", desc: "バンパー中央の網目状の部品。割れや裏側の取付ツメ折れを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "フォグランプ", isKeyPoint: false, estimate: "追加h", desc: "バンパー下部のライト。レンズ割れや取付部の損傷を確認します。", adjusterNote: "写真メモ：フォグ付きは分解脱着の追加工数として計上。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "メッキ", isKeyPoint: false, estimate: "", desc: "バンパー周りのメッキ装飾パーツ。キズや変形を確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エアロ", isKeyPoint: false, estimate: "追加h", desc: "純正または後付けのリップスポイラー等。下部の擦り傷に注意します。", adjusterNote: "写真メモ：スポイラー付きは分解脱着の追加工数。指数にないもの：スポイラー全般の取替・脱着・修理・塗装は別途計上。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ヘッドライトノズル", isKeyPoint: false, estimate: "", desc: "ヘッドライトウォッシャーのノズル。カバー欠落や作動不良を確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "素地部分", isKeyPoint: false, estimate: "追加h", desc: "無塗装の黒い樹脂パーツ。深いえぐれキズや白化を確認します。", adjusterNote: "写真メモ：素地付きは分解脱着の追加工数。マスキング工賃も別途。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "コーナーポール", isKeyPoint: false, estimate: "", desc: "バンパー角のポール。曲がりや作動不良を確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "センサー（個数確認）", isKeyPoint: false, estimate: "追加h", desc: "障害物を検知するソナーセンサー。損傷の有無と個数を確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "センサー穴あけ加工", isKeyPoint: true, estimate: "", hint: "センサー用穴あけ加工の工賃を忘れずに計上", desc: "新品バンパーにセンサー用の穴が開いていない場合、ドリルで穴をあける作業です。", adjusterNote: "鈑金材料代が反映しない場合は別途計上（ドリル刃等）。", appliesTo: ['new'] },
+          { name: "マスキング（素地）", isKeyPoint: true, estimate: "", hint: "素地部分のマスキング作業工賃", desc: "バンパーを塗装する際、塗料がついてはいけない素地部分をテープで覆い隠す作業です。", appliesTo: ['repair', 'used'] }
+        ]
+      },
+      "ボンネット": {
+        items: [
+          { name: "インシュレーター", isKeyPoint: false, estimate: "", desc: "ボンネット裏側の黒い防音・断熱カバー。クリップ破損や本体の破れを確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ボンネットヒンジ", isKeyPoint: false, estimate: "", desc: "ボンネットをボディに繋ぐ根元の金具。曲がりや塗装割れを確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "フードヒンジ取付部の鈑金", isKeyPoint: true, estimate: "", hint: "ヒンジ取付部の歪み修正・鈑金工賃", desc: "ヒンジが押されてボディ側（骨格）が歪んでいる場合、その修正にかかる作業です。", adjusterNote: "指数：ボンネット裏の塗装は含む。表裏で色が違う場合の塗装は含まない。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "カウルトップガーニッシュ脱着", isKeyPoint: true, estimate: "", hint: "交換・塗装時の隣接部品脱着工賃", desc: "ワイパーの下にある黒い樹脂カバー。ボンネット脱着やヒンジ交換の際に取り外す必要があります。", adjusterNote: "指数に含まない：フロントガラス交換時のカウルトップカバー脱着費用は別途計上。", appliesTo: ['new', 'used'] },
+          { name: "シーリング（材料・技術）", isKeyPoint: true, estimate: "", hint: "パネル接合部のシーリング材料代・作業工賃", desc: "新品のボンネットパネルのふち（ヘミング部）に、防水用ボンドを純正のように塗る作業と材料費です。", adjusterNote: "指数に含まない：ドア・シーラー代、シーラー流し作業は別途計上。", appliesTo: ['new'] },
+          { name: "ヒンジ・裏面塗装", isKeyPoint: true, estimate: "", hint: "裏面やヒンジ等の別塗装工賃", desc: "ボンネットの裏側や、新品のヒンジをボディ色に合わせて単体で塗装する作業です。", adjusterNote: "指数：ボンネット、ドア、Rrゲート裏の塗装は含む。", appliesTo: ['new', 'used'] }
+        ]
+      },
+      "フロントフェンダー": {
+        items: [
+          { name: "ウィンカー", isKeyPoint: false, estimate: "", desc: "フェンダー側面の方向指示器。レンズの割れや点灯不良を確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エンブレム", isKeyPoint: false, estimate: "", desc: "ハイブリッドやグレード等のマーク。一度剥がすと再使用不可のため部品計上が必要。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "マットガード", isKeyPoint: false, estimate: "", desc: "タイヤ後方の泥除けパーツ。下部に擦り傷がないか確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ストライプテープ", isKeyPoint: false, estimate: "", desc: "ボディ側面の装飾用テープ。貼り直す長さを確認。", adjusterNote: "指数：サッシテープは含む。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アーチモール", isKeyPoint: false, estimate: "", desc: "タイヤ周りのフチにつく樹脂モール。クリップ折れやキズを確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アッパーサイドカバー", isKeyPoint: false, estimate: "", desc: "フェンダーとボンネットの隙間などを埋める樹脂カバー類。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "サイドステップカバー", isKeyPoint: false, estimate: "", desc: "ドア下部のロッカーパネルを覆う長いカバー。フェンダー奥のボルトを外す際に脱着が必要。", adjusterNote: "指数にないもの：ステップカバー交換。※脱着は反映する。", appliesTo: ['new', 'used'] },
+          { name: "カウルトップガーニッシュ脱着", isKeyPoint: true, estimate: "", hint: "交換時の隣接部品脱着忘れに注意", desc: "ワイパー下の黒い樹脂カバー。フェンダー上部の奥のボルトを外すために脱着が必要。", adjusterNote: "指数に含まない：フロントガラス交換時のカウルトップカバー脱着は別途計上。", appliesTo: ['new', 'used'] },
+          { name: "内板骨格パネル別調色", isKeyPoint: true, estimate: "h", hint: "外板と内板骨格の色が違う場合の調色費用", desc: "新品パネルの裏側など、外側のボディ色と異なる色を塗るために、別の塗料を作る費用です。", adjusterNote: "指数に含まない：特別色・調色費用（マツダ、ホンダ、キャンディ塗装）は別途計上。", appliesTo: ['new'] },
+          { name: "チッピング塗装", isKeyPoint: true, estimate: "", hint: "下部飛び石防止のチッピング塗装工賃", desc: "フェンダー下部のザラザラした飛び石防止塗装を再現する作業です。", adjusterNote: "指数に含まない：防錆処理加工費用は別途計上。", appliesTo: ['repair', 'new', 'used'] }
+        ]
+      },
+      "フロントドア": {
+        items: [
+          { name: "開閉不能時の切開鈑金作業", isKeyPoint: true, estimate: "", hint: "ドアが開かない場合のツール等によるこじ開け費用", desc: "事故でドアが歪み、外から開かなくなった際に、専用工具でこじ開けたり切開したりする特殊作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "脱着ドア", isKeyPoint: true, estimate: "0.3h〜", hint: "ドア脱着工数", desc: "ドアを車体から外す作業。スライドドアは大きさにより1h以上かかる場合あり。", adjusterNote: "指数に含む：ドア組み換え作業。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアトリム", isKeyPoint: false, estimate: "0.1h〜", desc: "ドア内張り。脱着時に必要。", adjusterNote: "指数に含まない：ドアミラー交換時のドア内張り脱着費用は別途計上。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アウトサイドモール（水切りモール）", isKeyPoint: false, estimate: "0.25h〜", desc: "窓下の水切りモール。脱着・再取付に工数がかかります。", adjusterNote: "指数に含む：水切りモール、プロモール、アウターハンドル、サッシテープ。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "プロテクターモール", isKeyPoint: false, estimate: "0.2h〜", desc: "ドア中段のキズ防止モール。変形や両面テープの剥がれを確認。", adjusterNote: "指数に含む：プロモール。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アウターハンドル", isKeyPoint: false, estimate: "0.2h〜", desc: "外ドアハンドルの脱着。計上漏れに注意。", adjusterNote: "指数に含む：アウターハンドル。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアミラーウィンカー", isKeyPoint: false, estimate: "", desc: "ミラーに内蔵されたウィンカーレンズ。割れやキズを確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアミラー", isKeyPoint: false, estimate: "0.3h〜", desc: "ドアミラー本体の脱着。", adjusterNote: "指数に含まない：ドアミラー交換時のドア内張り脱着費用は別途。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアミラーカメラ", isKeyPoint: false, estimate: "", desc: "ミラー下部の全方位カメラ。キズやズレがないか確認（交換時はエーミング必須）。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "レギュレーター", isKeyPoint: false, estimate: "0.7h〜", desc: "窓の開閉機構。ガラス昇降に必要な脱着。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "サイドバイザー", isKeyPoint: false, estimate: "", desc: "窓の上の雨除けバイザー。割れやテープの剥がれを確認。", adjusterNote: "指数に含まない：ドア交換時のバイザー再使用費用は別途計上。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ウィンドモール", isKeyPoint: false, estimate: "", desc: "窓ガラス下部や外周のモール。メッキの曲がりやキズを確認。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ブラックアウトテープ", isKeyPoint: false, estimate: "", desc: "窓枠の柱（ピラー）に貼られた黒いテープ。塗装時に剥がすため新品貼り替えが必要。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ストライプテープ・エッジモール", isKeyPoint: false, estimate: "", desc: "ドアのフチのキズ防止モールや装飾テープ類。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ハンドル下シール（プロテクター）", isKeyPoint: false, estimate: "", desc: "ドアハンドルの奥に貼る引っかき傷防止の透明シールなど。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エンブレム", isKeyPoint: false, estimate: "", desc: "ドアに貼られたマーク類。再使用不可のため新品を手配します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアヒンジ取替時ピラー部分鈑金", isKeyPoint: true, estimate: "", hint: "ヒンジ損傷に伴うピラー側の鈑金", desc: "ドアの根元（ヒンジ）が押され、車体側（ピラー）が凹んでいる場合の引き出し・修正作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "隣接ドア（リアドア等）脱着", isKeyPoint: true, estimate: "", hint: "作業スペース確保やぼかし塗装のための脱着", desc: "フロントドアを修理・塗装する際、邪魔になるリアドアを一時的に外す作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "シーリング（材料・技術）", isKeyPoint: true, estimate: "1200円〜", hint: "ドアヘミング部のシーリング作業", desc: "新品ドアのふちの折り返し部分に、防水ボンドを塗布する作業と材料代です。必ず計上すること。", adjusterNote: "指数に含まない：ドア・シーラー代、シーラー流し作業は別途計上。写真メモ：シーリング代もらうこと ¥1200〜。", appliesTo: ['new'] },
+          { name: "ヒンジ塗装", isKeyPoint: true, estimate: "", hint: "ヒンジ部の塗装工賃", desc: "新品のドアヒンジをボディ色に合わせて単体で塗装する作業です。", adjusterNote: "指数：ドア裏の塗装は含む。", appliesTo: ['new', 'used'] },
+          { name: "エーミング作業", isKeyPoint: true, estimate: "35000円〜", hint: "ミラーカメラや各種センサー脱着後のエーミング", desc: "ドアミラーカメラを脱着・交換した際に行う、カメラの校正（ターゲット読み込み）作業です。", adjusterNote: "指数にないもの：エーミング作業（35,000円～）。運転支援システム調整として別途計上。", appliesTo: ['repair', 'new', 'used'] }
+        ]
+      },
+      "ルーフ": {
+        items: [
+          { name: "ルーフモール", isKeyPoint: false, estimate: "", desc: "ルーフ両サイドの溝にはまっている細長いモール。脱着時に曲がりやすいため交換になることが多いです。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ルーフアンテナ", isKeyPoint: false, estimate: "", desc: "シャークフィンなどのアンテナ。ルーフ塗装時に邪魔になるため脱着が必要です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ルーフスポイラー", isKeyPoint: false, estimate: "", desc: "ルーフ後端のスポイラー。割れやキズを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ヘッドライニング（天張り）脱着", isKeyPoint: true, estimate: "", hint: "ルーフの鈑金・溶接に伴う室内天張りの脱着工賃", desc: "ルーフの鈑金や熱を加える作業の際、焦げや作業スペース確保のために室内の天井（天張り）を外す作業です。", adjusterNote: "指数に含まない：ルーフパネル取替に付随する脱着作業（ライニング、トリム、ガラス、Rrゲート）は別途計上。", appliesTo: ['repair', 'new'] },
+          { name: "前後ガラス脱着", isKeyPoint: true, estimate: "", hint: "ルーフパネル作業に伴う前後ガラスの脱着・シーリング費用", desc: "ルーフのパネルを交換したり端まで塗装する際、フロントガラスやリアガラスを一度外す専門作業です。", adjusterNote: "指数に含まない：ルーフに付随するガラス脱着。Rrゲートはガラス脱着以外含む（気密検査まで）。", appliesTo: ['repair', 'new'] }
+        ]
+      },
+      "リアドア（スライドドア）": {
+        items: [
+          { name: "開閉不能時の切開鈑金作業", isKeyPoint: true, estimate: "", hint: "ドアが開かない場合のこじ開け費用", desc: "事故でスライドドア等が噛み込み開かなくなった際、工具で切開・こじ開ける特殊作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "脱着ドア（スライド）", isKeyPoint: true, estimate: "0.8h〜", hint: "スライドドア脱着工数", desc: "スライドドアは大きさにより1h以上かかることがあります。中古交換は新品取替工賃＋入替工賃2h〜。", adjusterNote: "指数に含む：ドア組み換え作業。写真メモ：入替工賃2h〜。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアトリム", isKeyPoint: false, estimate: "h", desc: "ドア内張り脱着。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アウトサイドモール", isKeyPoint: false, estimate: "h", desc: "窓下の水切りモール。", adjusterNote: "指数に含む：水切りモール、プロモール、アウターハンドル。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "プロテクターモール", isKeyPoint: false, estimate: "h", desc: "ドア中段のモール。変形やキズを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "アウターハンドル", isKeyPoint: false, estimate: "h", desc: "外ドアハンドル。計上漏れに注意。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアミラー", isKeyPoint: false, estimate: "h", desc: "ドアミラー脱着。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "オートスライドドアインナー部品", isKeyPoint: false, estimate: "h", desc: "電動スライドドアの室内側機構。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "サイドバイザー", isKeyPoint: false, estimate: "", desc: "窓の上の雨除けバイザー。割れを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ウィンドモール", isKeyPoint: false, estimate: "", desc: "窓枠のモール。メッキの曲がりやキズを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ブラックアウトテープ", isKeyPoint: false, estimate: "", desc: "窓枠の黒いテープ。塗装時は新品への貼り替えが必要です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ストライプテープ・エッジモール", isKeyPoint: false, estimate: "", desc: "装飾テープやフチのモール類です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ハンドル下シール（プロテクター）", isKeyPoint: false, estimate: "", desc: "ハンドル奥のキズ防止用シールです。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エンブレム", isKeyPoint: false, estimate: "", desc: "車名などのマーク類です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドアヒンジ取替時ピラー部分鈑金", isKeyPoint: true, estimate: "", hint: "ヒンジ・レール損傷に伴うピラー・クォーター鈑金", desc: "スライドドアのレールやヒンジが押され、ボディ側が変形している場合の修正作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "シーリング（材料・技術）", isKeyPoint: true, estimate: "1200円〜", hint: "ドアヘミング部のシーリング作業（もらうこと）", desc: "新品ドアパネルのふちの防水処理作業と材料代です。必ず計上。特殊：ドア開閉機構・ウィンド開閉等リセットは実費請求。", adjusterNote: "指数に含まない：シーラー代・シーラー流し作業。写真メモ：1200円〜。", appliesTo: ['new'] },
+          { name: "ヒンジ・レール塗装", isKeyPoint: true, estimate: "", hint: "ヒンジ・レール周辺の塗装工賃", desc: "ヒンジやレールカバーなどを単体で塗装する作業です。", appliesTo: ['new', 'used'] }
+        ]
+      },
+      "クォーターパネル": {
+        items: [
+          { name: "クォーターガラス", isKeyPoint: false, estimate: "", desc: "はめ殺しになっているリア横のガラス。クォーターパネルの鈑金・塗装時には脱着が必要です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "プロテクターガード", isKeyPoint: false, estimate: "", desc: "下部などに貼られている飛び石防止用の透明なフィルムです。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "フェールリッド（給油口）", isKeyPoint: false, estimate: "", desc: "給油口のフタ。閉まり具合の不良や、チリ（隙間）のズレを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ホイールアウターパネル", isKeyPoint: false, estimate: "", desc: "タイヤを囲うハウス外側のパネル部。内部まで曲がっていないか確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ホイール", isKeyPoint: false, estimate: "", desc: "タイヤのホイール。接触によるリムの削れや歪みを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "Rドア（スライド）脱着", isKeyPoint: false, estimate: "0.8h〜", desc: "クォーター作業時にスライドドアを外す場合。写真メモ：0.8h〜＋回。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "シーリング材料費", isKeyPoint: false, estimate: "m", desc: "Rフェンダー・クォーター周りのシーリング材料。", appliesTo: ['repair', 'new'] },
+          { name: "アンダーコート", isKeyPoint: true, estimate: "", hint: "防錆アンダーコートの塗装工賃・材料代", desc: "パネル下部や裏側に塗布する、ザラザラしたサビ止め・防音用塗料の作業です。", adjusterNote: "指数に含まない：防錆処理加工費用は別途計上。", appliesTo: ['repair', 'new'] },
+          { name: "アーチテープ（シーラー）", isKeyPoint: true, estimate: "", hint: "ホイールアーチ部のシーラー", desc: "タイヤアーチ（フチ）の折り返し部分に入れる防水ボンド処理です。", adjusterNote: "指数に含まない：ドア・シーラー代、シーラー流し作業。", appliesTo: ['repair', 'new'] },
+          { name: "クォーター塗装時アンダーコート", isKeyPoint: true, estimate: "", hint: "塗装時のアンダーコート再処理", desc: "塗装のために元のアンダーコートを剥がした際、再度塗り直す作業です。", appliesTo: ['repair', 'new'] },
+          { name: "シート・内張り脱着", isKeyPoint: true, estimate: "h", hint: "裏側からの叩き出しや溶接に伴う室内パーツ脱着", desc: "クォーターパネルを裏側から鈑金したり溶接する際、焦げを防ぐため室内のシートや内張りを外す作業です。写真メモ：シート脱着 h。", adjusterNote: "指数に含まない：ルーフに付随するトリム脱着は別途。", appliesTo: ['repair', 'new'] },
+          { name: "内板骨格パネル別調色", isKeyPoint: true, estimate: "h", hint: "内側パネルの別調色費用", desc: "トランクの内側など、ボディ外側と異なる色の部分を塗るために別の色を作る費用です。", adjusterNote: "指数に含まない：特別色・調色費用は別途計上。写真メモ：内板骨格パネル調色 h。", appliesTo: ['new'] }
+        ]
+      },
+      "バックドア": {
+        items: [
+          { name: "開閉不能時の切開鈑金作業", isKeyPoint: true, estimate: "", hint: "開かないバックドアをこじ開ける作業費用", desc: "追突されバックドアが開かなくなった際、荷物を取り出したり修理を始めるためにこじ開ける特殊作業です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "バックカメラ脱着", isKeyPoint: false, estimate: "h", desc: "後方確認用カメラの脱着。レンズの割れや映像の映りを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ナンバープレート脱着", isKeyPoint: false, estimate: "h", desc: "リアナンバーを外す作業。再封印手続きは別途。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "スポイラー脱着", isKeyPoint: false, estimate: "h", desc: "バックドア上部の羽（スポイラー）の脱着。割れや取付部のガタつきを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ルーフスポイラー", isKeyPoint: false, estimate: "", desc: "バックドア上部の羽（スポイラー）。割れや取付部のガタつきを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "センターストップランプ", isKeyPoint: false, estimate: "", desc: "上部にあるハイマウントストップランプ。レンズ割れや点灯不良を確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エンブレム", isKeyPoint: false, estimate: "個", desc: "車名やメーカーロゴ。塗装・交換時は新品を手配します。写真メモ：エンブレム交換 個。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "バックカメラ", isKeyPoint: false, estimate: "", desc: "後方確認用カメラ。レンズの割れや映像の映りを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "ドライブレコーダー（リア）", isKeyPoint: false, estimate: "", desc: "リアガラスに貼られたドラレコ。ガラス交換時は両面テープでの再設置や配線処理が必要です。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "樹脂パーツ", isKeyPoint: false, estimate: "", desc: "バックドアのガーニッシュ（装飾パネル）。メッキのキズや割れを確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "スポイラー穴あけ加工", isKeyPoint: true, estimate: "", hint: "スポイラー取付用の穴あけ工賃", desc: "新品バックドアにスポイラー用の穴が開いていない場合、ドリルで穴をあける加工です。", adjusterNote: "鈑金材料代が反映しない場合は別途計上。指数にないもの：スポイラー全般の取替・脱着・修理・塗装。", appliesTo: ['new'] },
+          { name: "カメラ穴あけ加工", isKeyPoint: true, estimate: "", hint: "カメラ取付用の穴あけ工賃", desc: "新品のガーニッシュ等にバックカメラ用の穴をあける加工作業です。", appliesTo: ['new'] },
+          { name: "ドラレコ配線配管作業", isKeyPoint: true, estimate: "", hint: "ドライブレコーダーの配線引き直し・処理工賃", desc: "バックドアを交換する際、リアドラレコの配線を一度引き抜き、新しいドアへ通し直す作業です。", appliesTo: ['new', 'used'] },
+          { name: "シーリング（材料・技術）", isKeyPoint: true, estimate: "", hint: "パネル接合部のシーリング作業", desc: "新品バックドアのフチに防水ボンドを塗布する作業です。", adjusterNote: "指数に含まない：ドア・シーラー代、シーラー流し作業は別途計上。", appliesTo: ['new'] },
+          { name: "ヒンジ塗装", isKeyPoint: true, estimate: "", hint: "ヒンジ部の塗装", desc: "バックドアを支えるヒンジをボディ色に塗装する作業です。", adjusterNote: "指数：Rrゲートはガラス脱着以外含む（気密検査まで）。", appliesTo: ['new', 'used'] },
+          { name: "ナンバープレート脱着・再封印", isKeyPoint: true, estimate: "", hint: "ナンバーの脱着、および再封印手続き費用", desc: "普通車のリアナンバーを外す際、陸運局での「再封印」手続きとそれに伴う代行費用です。", adjusterNote: "指数に含まない：ナンバー代、ナンバー再交付費用（再封印）は別途計上。", appliesTo: ['repair', 'new', 'used'] }
+        ]
+      },
+      "リヤバンパー": {
+        items: [
+          { name: "センサー", isKeyPoint: false, estimate: "追加h", desc: "後方のソナーセンサー。傷の有無と個数を確認します。", adjusterNote: "写真メモ：センサー付きは分解脱着の追加工数。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "エアロ", isKeyPoint: false, estimate: "", desc: "リアアンダースポイラーなど。マフラー周辺の熱による変形や割れも確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "マットガード", isKeyPoint: false, estimate: "", desc: "後輪後ろの泥除け。擦り傷やクリップの欠落を確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "コーナーセンサー", isKeyPoint: false, estimate: "", desc: "バンパー角のセンサー。ぶつかった衝撃で内部に陥没していないか確認します。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "分解脱着（基本工数）", isKeyPoint: true, estimate: "0.8〜1.5h", hint: "車種により0.8〜1.5h。計算：交換工賃指数－脱着工賃指数×0.8", desc: "Rバンパー分解脱着の基本工数。スポイラー付・センサー付・素地付は追加h。中古交換は新品取替と同じ。", adjusterNote: "バンパー脱着修理は脱着・修理を別々で選択すること。", appliesTo: ['repair', 'new', 'used'] },
+          { name: "センサー穴あけ加工", isKeyPoint: true, estimate: "", hint: "各種センサー取付用の穴あけ工賃", desc: "新品バンパーにセンサー用の穴をあける加工作業です。", appliesTo: ['new'] },
+          { name: "マスキング（素地）", isKeyPoint: true, estimate: "", hint: "素地部分やマフラー周りのマスキング工賃", desc: "バンパー塗装時、素地部分やマフラーに塗料がつかないように覆い隠す作業です。", appliesTo: ['repair', 'used'] }
+        ]
+      }
+    };
+
+    const commonItems = {
+      items: [
+        { name: "基本準備時間", isKeyPoint: true, estimate: "", hint: "車両搬入出・工具準備／片付け等の基本作業時間", desc: "実作業前後に必ず発生する、段取り・準備・片付けの基本時間です。", adjusterNote: "見積ツール：鈑金準備費用0.4H、塗装準備費用0.4Hは指数にないため別途計上可能。", appliesTo: ['all'] },
+        { name: "スキャンツール（OBD診断機）接続・診断費用", isKeyPoint: true, estimate: "", hint: "入庫時・出庫時のシステム診断費用", desc: "最近の車は目に見えないコンピューターエラーが残るため、専用診断機で入庫時と出庫時にチェックする費用です。", adjusterNote: "指数に含まない：OBDシステム診断は別途計上。", appliesTo: ['all'] },
+        { name: "入庫・納車時の外観写真撮影", isKeyPoint: true, estimate: "", hint: "立会確認・記録用の写真撮影費用", desc: "入庫時と納車時に車両外観を撮影し、立会確認書や記録に使用する作業です。", appliesTo: ['all'] },
+        { name: "塗装ブース使用加算", isKeyPoint: true, estimate: "", hint: "塗装ブースを使用した場合の光熱費・設備加算", desc: "ゴミやホコリを遮断し、加熱乾燥を行う専用塗装ブースの設備費用です。", adjusterNote: "指数にないもの：ブース燃料代（冬料金・夏料金）は別途。", appliesTo: ['repair', 'new', 'used'] },
+        { name: "塗装範囲外ミスト養生作業", isKeyPoint: true, estimate: "", hint: "塗料ミストから車両全体を守る養生費用", desc: "塗装中のミスト付着を防ぐため、非塗装部位を全体養生する作業です。", appliesTo: ['repair', 'new', 'used'] },
+        { name: "エーミング作業費用", isKeyPoint: true, estimate: "35000円〜", hint: "バンパーやガラス、センサー脱着時の校正作業", desc: "センサーやカメラが付いた部品を脱着・交換した際、自動ブレーキ等が正しく作動するようターゲットを使って調整（校正）する作業です。", adjusterNote: "指数にないもの：エーミング作業（35,000円～）。運転支援システム調整として別途計上。", appliesTo: ['repair', 'new', 'used'] },
+        { name: "試運転費用", isKeyPoint: true, estimate: "", hint: "足回り修理やシステム調整後の走行確認", desc: "足回りの修理やエーミング後、実際に道路を走って異音やシステムが正常に作動するか確認するテスト費用です。", appliesTo: ['all'] },
+        { name: "洗車・室内清掃費用", isKeyPoint: true, estimate: "", hint: "作業完了後の洗車および車内清掃", desc: "修理完了後、お客様に綺麗な状態で納車するための洗車と室内清掃にかかる費用です。", adjusterNote: "指数に含まない：ガラス飛散による室内清掃代は別途計上。", appliesTo: ['all'] },
+        { name: "廃棄物処理代（産廃代）", isKeyPoint: true, estimate: "", hint: "交換部品・研磨粉・塗料廃材等の処分費用", desc: "交換部品や塗装・鈑金で発生する事業系廃棄物を適正に処理するための費用です。産廃は細かく計上（廃タイヤ、樹脂、ガラス、その他）、設備維持費用。", adjusterNote: "指数に含まない：産廃代（タイヤ、バッテリー、オイル類、ガラス）は別途計上。", appliesTo: ['repair', 'new', 'used'] }
+      ]
+    };
+
+    const ensureItemCategory = (item) => ({
+      ...item,
+      category: item.category || (item.isKeyPoint ? 'labor' : 'damage')
+    });
+
+    Object.keys(partsData).forEach((partName) => {
+      partsData[partName].items = (partsData[partName].items || []).map(ensureItemCategory);
+    });
+    commonItems.items = (commonItems.items || []).map((item) => ensureItemCategory({ ...item, category: 'labor' }));
+
+    const CATEGORY_ORDER = ['labor', 'damage'];
+    const CATEGORY_LABEL = {
+      damage: '損傷確認系',
+      labor: '工賃系'
+    };
+
+    // --- メインアプリ ---
+    function App() {
+      const [selectedAreas, setSelectedAreas] = useState([]);
+      const [workTypes, setWorkTypes] = useState({}); // 例: { "左Fドア": "repair", "フロントバンパー": "new" }
+      const [checkedItems, setCheckedItems] = useState({});
+      const [expandedHelp, setExpandedHelp] = useState({});
+      const [toastMessage, setToastMessage] = useState("");
+      const [showConfirm, setShowConfirm] = useState(false);
+      const [reportMeta, setReportMeta] = useState(function() {
+        const p = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+        return {
+          お客様名: p.get('お客様名') || "",
+          車種: p.get('車種') || "",
+          ナンバー: p.get('ナンバー') || "",
+          カラーNo: p.get('カラーNo') || "",
+          担当者: p.get('担当者') || ""
+        };
+      });
+
+      const showToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(""), 3000);
+      };
+
+      const getActiveWorkTypes = () => {
+        const types = new Set();
+        selectedAreas.forEach((area) => {
+          if (area.areaKey === '共通項目') return;
+          types.add(workTypes[area.label] || 'repair');
+        });
+        if (types.size === 0) types.add('repair');
+        return Array.from(types);
+      };
+
+      const getFilteredItems = (area) => {
+        const dataObj = area.areaKey === '共通項目' ? commonItems : partsData[area.areaKey];
+        const allItems = dataObj?.items || [];
+
+        if (area.areaKey === '共通項目') {
+          const activeTypes = getActiveWorkTypes();
+          return allItems.filter((item) => {
+            if (!item.appliesTo || item.appliesTo.includes('all')) return true;
+            return activeTypes.some((t) => item.appliesTo.includes(t));
+          });
+        }
+
+        const currentWorkType = workTypes[area.label] || 'repair';
+        return allItems.filter(item => !item.appliesTo || item.appliesTo.includes(currentWorkType));
+      };
+
+      const groupItemsByCategory = (items) => {
+        const grouped = { damage: [], labor: [] };
+        items.forEach((item) => {
+          const key = item.category === 'labor' ? 'labor' : 'damage';
+          grouped[key].push(item);
+        });
+        return grouped;
+      };
+
+      const handleToggleArea = (areaKey, label) => {
+        setSelectedAreas(prev => {
+          const exists = prev.find(p => p.label === label);
+          if (exists) {
+            return prev.filter(p => p.label !== label);
+          } else {
+            // 新規追加時にデフォルトの作業種別を設定（共通項目以外は「修理」）
+            setWorkTypes(wt => ({ ...wt, [label]: areaKey === '共通項目' ? 'common' : 'repair' }));
+            return [...prev, { areaKey, label }];
+          }
+        });
+      };
+
+      const handleWorkTypeChange = (label, type) => {
+        setWorkTypes(prev => ({ ...prev, [label]: type }));
+
+        // 作業種別変更時に、切替後に表示対象外となるチェックを自動で外して混乱を防ぐ
+        const targetArea = selectedAreas.find((a) => a.label === label);
+        if (!targetArea) return;
+        const dataObj = partsData[targetArea.areaKey];
+        const allItems = dataObj?.items || [];
+        const allowedNames = new Set(
+          allItems
+            .filter((item) => !item.appliesTo || item.appliesTo.includes(type))
+            .map((item) => item.name)
+        );
+        setCheckedItems(prev => {
+          const next = { ...prev };
+          Object.keys(prev).forEach((key) => {
+            if (!key.startsWith(`${label}::`)) return;
+            const [, itemName] = key.split('::');
+            if (!allowedNames.has(itemName)) delete next[key];
+          });
+          return next;
+        });
+      };
+
+      const handleToggleCheck = (itemKey) => {
+        setCheckedItems(prev => {
+          const newState = { ...prev };
+          if (newState[itemKey]) {
+            delete newState[itemKey];
+          } else {
+            newState[itemKey] = true;
+          }
+          return newState;
+        });
+      };
+
+      const handleToggleHelp = (e, itemKey) => {
+        e.stopPropagation(); 
+        setExpandedHelp(prev => ({
+          ...prev,
+          [itemKey]: !prev[itemKey]
+        }));
+      };
+
+      const handleResetClick = () => {
+        setShowConfirm(true);
+      };
+
+      const executeReset = () => {
+        setCheckedItems({});
+        setSelectedAreas([]);
+        setWorkTypes({});
+        setExpandedHelp({});
+        setReportMeta({ お客様名: "", 車種: "", ナンバー: "", カラーNo: "", 担当者: "" });
+        setShowConfirm(false);
+        showToast("リセットしました");
+      };
+
+      const handleMetaChange = (field, value) => {
+        setReportMeta(prev => ({ ...prev, [field]: value }));
+      };
+
+      const handlePrintAndPdf = () => {
+        const el = document.getElementById('print-area');
+        if (!el || typeof html2pdf === 'undefined') {
+          window.print();
+          return;
+        }
+        const sanitize = (s) => (s ? String(s).replace(/[\s\\/:*?"<>|]/g, '_').slice(0, 50) : '');
+        const a = sanitize(reportMeta.お客様名) || 'お客様名';
+        const b = sanitize(reportMeta.車種) || '車種';
+        const c = sanitize(reportMeta.ナンバー) || 'ナンバー';
+        const filename = `${a}_${b}_${c}.pdf`;
+        const opt = {
+          margin: 10,
+          filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        // クローンを body に追加してキャプチャ（元要素は hidden のまま。クローンは確実に描画される）
+        const clone = el.cloneNode(true);
+        clone.id = 'print-area-clone';
+        clone.classList.remove('hidden');
+        clone.style.cssText = 'position:fixed; left:0; top:0; width:210mm; max-width:100%; display:block; background:#fff; z-index:9999; opacity:0.01; pointer-events:none;';
+        document.body.appendChild(clone);
+        const removeAndPrint = () => {
+          if (clone.parentNode) clone.parentNode.removeChild(clone);
+          window.print();
+        };
+        window.requestAnimationFrame(() => {
+          setTimeout(() => {
+            html2pdf().set(opt).from(clone).save().then(removeAndPrint).catch(removeAndPrint);
+          }, 300);
+        });
+      };
+
+      // 左の車のイラストボタン描画用
+      const renderPartButton = ({ label, partName, className = "" }) => {
+        const isSelected = selectedAreas.some(p => p.label === label);
+        const virtualArea = { areaKey: partName, label };
+        const items = getFilteredItems(virtualArea);
+          
+        const total = items.length;
+        const checkedCount = items.filter(item => checkedItems[`${label}::${item.name}`]).length;
+        const isComplete = total > 0 && checkedCount === total;
+        const hasSomeChecks = checkedCount > 0;
+
+        return (
+          <button
+            key={label}
+            onClick={() => handleToggleArea(partName, label)}
+            className={`relative flex flex-col items-center justify-center p-2 text-sm font-bold border-2 transition-all duration-200 
+              ${isSelected ? 'bg-blue-600 text-white border-blue-700 shadow-md transform scale-[1.02] z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50'} 
+              ${className}`}
+            style={{ minHeight: '3.5rem' }}
+          >
+            <span>{label}</span>
+            {hasSomeChecks && !isComplete && (
+              <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow border border-white">
+                {checkedCount}
+              </span>
+            )}
+            {isComplete && (
+              <span className="absolute -top-2 -right-2 bg-green-500 text-white w-5 h-5 flex items-center justify-center rounded-full shadow border border-white">
+                <Check className="w-3 h-3 stroke-[3]" />
+              </span>
+            )}
+          </button>
+        );
+      };
+
+      return (
+        <div className="min-h-screen pb-24 print:pb-0 print:bg-white">
+          <style dangerouslySetInnerHTML={{__html: `
+            .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+            .animate-fade-in-up { animation: fadeInUp 0.3s ease-out; }
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+            @media print {
+              @page { size: A4 portrait; margin: 10mm; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff !important; }
+              .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
+            }
+          `}} />
+
+          {/* ヘッダー */}
+          <header className="bg-slate-800 text-white p-4 shadow-md sticky top-0 z-30 print:hidden">
+            <div className="max-w-5xl mx-auto flex items-center justify-between">
+              <h1 className="text-lg md:text-xl font-bold flex items-center tracking-wide">
+                <CheckSquare className="mr-2 text-blue-400 w-6 h-6" />
+                見積もりチェッカー
+              </h1>
+              <button onClick={handleResetClick} className="text-xs md:text-sm bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded border border-slate-500 transition-colors">
+                リセット
+              </button>
+            </div>
+          </header>
+
+          <main className="max-w-5xl mx-auto p-4 mt-4 print:hidden">
+            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <h2 className="text-base font-bold text-blue-900 mb-2">使い方</h2>
+              <p className="text-sm text-blue-800 leading-relaxed">
+                1) 下の「受付情報」を入力 → 2) 車両図から損傷部位を選択 → 3) 各部位で作業種別（修理・新品交換・中古交換）を選び項目をチェック → 4) 右下の「印刷する」で出力。
+              </p>
+            </div>
+
+            <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-4">
+              <p className="text-xs text-gray-500 font-medium">※ PDFのファイル名は「お客様名_車種_ナンバー」になります</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1 font-medium">お客様名</span>
+                  <input value={reportMeta.お客様名} onChange={(e) => handleMetaChange("お客様名", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="例: 山田 太郎" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1 font-medium">車種</span>
+                  <input value={reportMeta.車種} onChange={(e) => handleMetaChange("車種", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="例: トヨタ プリウス" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1 font-medium">ナンバー</span>
+                  <input value={reportMeta.ナンバー} onChange={(e) => handleMetaChange("ナンバー", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="例: 品川300あ1234" />
+                </label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1 font-medium">カラー№</span>
+                  <input value={reportMeta.カラーNo} onChange={(e) => handleMetaChange("カラーNo", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="例: 3R2" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1 font-medium">担当者</span>
+                  <input value={reportMeta.担当者} onChange={(e) => handleMetaChange("担当者", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" placeholder="例：清田" />
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* 左カラム: 車両イラスト */}
+              <div className="lg:col-span-5 lg:sticky lg:top-24">
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                  <h2 className="text-center font-bold text-gray-700 mb-4 flex items-center justify-center">
+                    <Car className="mr-2 w-5 h-5 text-gray-500" />
+                    損傷部位を選択（複数可）
+                  </h2>
+
+                  <div className="mt-2 w-full max-w-[320px] mx-auto">
+                    {renderPartButton({ label: "共通・付帯作業 (必須)", partName: "共通項目", className: "w-full bg-indigo-50 border-indigo-300 text-indigo-800 rounded-xl py-3 hover:bg-indigo-100" })}
+                  </div>
+                  
+                  <div className="flex flex-col items-center gap-1.5 w-full max-w-[320px] mx-auto bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner">
+                    {renderPartButton({ label: "フロントバンパー", partName: "フロントバンパー", className: "w-[85%] rounded-t-[2rem] rounded-b-md" })}
+                    <div className="flex w-full gap-1.5 h-20">
+                      {renderPartButton({ label: "左Fフェンダー", partName: "フロントフェンダー", className: "w-1/4 rounded-tl-2xl rounded-bl-sm" })}
+                      {renderPartButton({ label: "ボンネット", partName: "ボンネット", className: "w-2/4 rounded-sm border-b-4 border-b-gray-400" })}
+                      {renderPartButton({ label: "右Fフェンダー", partName: "フロントフェンダー", className: "w-1/4 rounded-tr-2xl rounded-br-sm" })}
+                    </div>
+                    <div className="flex w-full gap-1.5 h-20">
+                      {renderPartButton({ label: "左Fドア", partName: "フロントドア", className: "w-1/4 rounded-sm" })}
+                      {renderPartButton({ label: "ルーフ", partName: "ルーフ", className: "w-2/4 rounded-sm" })}
+                      {renderPartButton({ label: "右Fドア", partName: "フロントドア", className: "w-1/4 rounded-sm" })}
+                    </div>
+                    <div className="flex w-full gap-1.5 h-20">
+                      {renderPartButton({ label: "左Rドア", partName: "リアドア（スライドドア）", className: "w-1/4 rounded-sm" })}
+                      <div className="w-2/4 bg-slate-200/60 flex items-center justify-center rounded-sm border border-slate-300 border-dashed">
+                        <span className="text-slate-400 text-xs font-medium">室内/フロア</span>
+                      </div>
+                      {renderPartButton({ label: "右Rドア", partName: "リアドア（スライドドア）", className: "w-1/4 rounded-sm" })}
+                    </div>
+                    <div className="flex w-full gap-1.5 h-16">
+                      {renderPartButton({ label: "左クォーター", partName: "クォーターパネル", className: "w-1/4 rounded-bl-2xl rounded-tl-sm" })}
+                      {renderPartButton({ label: "バックドア", partName: "バックドア", className: "w-2/4 rounded-sm border-t-4 border-t-gray-400" })}
+                      {renderPartButton({ label: "右クォーター", partName: "クォーターパネル", className: "w-1/4 rounded-br-2xl rounded-tr-sm" })}
+                    </div>
+                    {renderPartButton({ label: "リヤバンパー", partName: "リヤバンパー", className: "w-[85%] rounded-b-[2rem] rounded-t-md" })}
+                  </div>
+                </div>
+              </div>
+
+            {/* 右カラム: チェックリスト群 */}
+            <div className="lg:col-span-7">
+              {selectedAreas.length === 0 ? (
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white border border-gray-200 border-dashed rounded-2xl text-gray-400 p-6">
+                  <Wrench className="w-12 h-12 mb-3 opacity-20" />
+                  <p className="text-center font-medium leading-relaxed">
+                    左のイラストから損傷部位を<br/>タップしてチェックを開始してください
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {selectedAreas.map((area) => {
+                    const currentWorkType = workTypes[area.label] || 'repair';
+                    const filteredItems = getFilteredItems(area);
+                    const groupedItems = groupItemsByCategory(filteredItems);
+                    
+                    return (
+                      <div key={area.label} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in">
+                        <div className="bg-slate-50 border-b border-gray-200 p-4">
+                          <div className="flex justify-between items-center">
+                            <h2 className="text-lg md:text-xl font-bold text-slate-800 flex items-center">
+                              <ClipboardList className="mr-2 text-blue-600 w-6 h-6" />
+                              {area.label}
+                            </h2>
+                            <button onClick={() => handleToggleArea(area.areaKey, area.label)} className="text-gray-400 hover:text-red-500 bg-white border border-gray-200 rounded p-1 shadow-sm transition-colors">
+                              <X className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          {/* 作業種別切り替えタブ (共通項目以外) */}
+                          {area.areaKey !== '共通項目' && (
+                            <div className="flex bg-slate-200/70 p-1 rounded-lg mt-4">
+                              <button
+                                onClick={() => handleWorkTypeChange(area.label, 'repair')}
+                                className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all duration-200 ${currentWorkType === 'repair' ? 'bg-white shadow-sm text-blue-700 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                              >
+                                修理
+                              </button>
+                              <button
+                                onClick={() => handleWorkTypeChange(area.label, 'new')}
+                                className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all duration-200 ${currentWorkType === 'new' ? 'bg-white shadow-sm text-blue-700 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                              >
+                                新品交換
+                              </button>
+                              <button
+                                onClick={() => handleWorkTypeChange(area.label, 'used')}
+                                className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all duration-200 ${currentWorkType === 'used' ? 'bg-white shadow-sm text-blue-700 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}
+                              >
+                                中古交換
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="p-4 space-y-5">
+                          {CATEGORY_ORDER.map((cat) => {
+                            const sectionItems = groupedItems[cat];
+                            if (!sectionItems || sectionItems.length === 0) return null;
+                            return (
+                              <div key={cat} className="space-y-3">
+                                <div className={`text-sm font-bold px-3 py-1.5 rounded-lg border inline-block ${cat === 'damage' ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                  {CATEGORY_LABEL[cat]}（{sectionItems.length}）
+                                </div>
+                                {sectionItems.map((item, idx) => {
+                                  const itemKey = `${area.label}::${item.name}`;
+                                  const isChecked = !!checkedItems[itemKey];
+                                  const isHelpExpanded = !!expandedHelp[itemKey];
+                                  return (
+                                    <div key={`${cat}-${idx}`} onClick={() => handleToggleCheck(itemKey)} className={`flex items-start p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-200 ${isChecked ? 'bg-blue-50/50 border-blue-400 shadow-sm' : 'bg-white border-gray-200 hover:border-blue-200 hover:bg-gray-50'} ${item.isKeyPoint && !isChecked ? 'border-yellow-300 bg-yellow-50/30' : ''}`}>
+                                      <div className="flex-shrink-0 mt-0.5">
+                                        <div className={`w-6 h-6 rounded flex items-center justify-center border-2 transition-colors ${isChecked ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300'}`}>
+                                          {isChecked && <Check className="w-4 h-4 text-white stroke-[3]" />}
+                                        </div>
+                                      </div>
+                                      <div className="ml-3 flex-1">
+                                        <div className="flex justify-between items-center flex-wrap gap-x-2">
+                                          <div className={`text-base font-bold transition-all ${isChecked ? 'text-blue-900 opacity-80' : 'text-gray-800'}`}>
+                                            {item.name}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {item.estimate && (
+                                              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
+                                                {item.estimate}
+                                              </span>
+                                            )}
+                                            {(item.desc || item.adjusterNote) && (
+                                              <button onClick={(e) => handleToggleHelp(e, itemKey)} className={`p-1.5 rounded-full transition-colors flex-shrink-0 ${isHelpExpanded ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`} title="説明・アジャスター向け">
+                                                <HelpCircle className="w-5 h-5" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {(isHelpExpanded && (item.desc || item.adjusterNote)) && (
+                                          <div className="mt-2.5 mb-1 space-y-3 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                                            {item.desc && (
+                                              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 leading-relaxed shadow-sm">
+                                                <div className="flex items-center gap-1.5 mb-2 text-slate-500 font-bold text-xs uppercase tracking-wide">
+                                                  <Info className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                                                  説明
+                                                </div>
+                                                <div className="pl-5">{item.desc}</div>
+                                              </div>
+                                            )}
+                                            {item.adjusterNote && (
+                                              <div className="p-3.5 bg-amber-50/80 border-l-4 border-amber-400 rounded-r-xl text-sm shadow-sm">
+                                                <div className="flex items-center gap-1.5 mb-2 text-amber-800 font-bold text-xs">
+                                                  【アジャスター向け】
+                                                </div>
+                                                <div className="text-amber-900/90 leading-relaxed">{item.adjusterNote}</div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {item.isKeyPoint && (
+                                          <div className={`mt-2 text-sm flex items-start p-2 rounded-md border ${isChecked ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-yellow-100/70 border-yellow-200 text-yellow-800'}`}>
+                                            <AlertCircle className="w-4 h-4 mr-1.5 flex-shrink-0 mt-0.5" />
+                                            <span className="leading-snug">{item.hint}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+
+                          {filteredItems.length === 0 && (
+                            <p className="text-center text-sm text-gray-500 py-4">この作業でチェックすべき特有の項目はありません。</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            </div>
+          </main>
+
+          {/* 右下のアクションボタン */}
+          <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3 print:hidden">
+            <button onClick={handlePrintAndPdf} className="flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-full shadow-xl transform transition-transform active:scale-95 focus:outline-none">
+              <Printer className="w-5 h-5 mr-2" />
+              印刷 / PDF保存
+            </button>
+          </div>
+
+          {/* 印刷用レイアウト */}
+          <div id="print-area" className="hidden print:block text-black max-w-4xl mx-auto w-full p-2">
+            <div className="border-b-2 border-black pb-3 mb-6 flex justify-between items-end">
+              <h1 className="text-2xl font-bold flex items-center">
+                <CheckSquare className="mr-2 w-8 h-8" />
+                見積もりチェック結果
+              </h1>
+              <p className="text-sm font-medium">
+                出力日時: {new Date().toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+
+            <div className="mb-6 border-2 border-gray-600 rounded-lg p-3 space-y-2 text-sm print-avoid-break">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div><span className="font-bold">お客様名:</span> {reportMeta.お客様名 || "未入力"}</div>
+                <div><span className="font-bold">車種:</span> {reportMeta.車種 || "未入力"}</div>
+                <div><span className="font-bold">ナンバー:</span> {reportMeta.ナンバー || "未入力"}</div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-400 pt-2 mt-2">
+                <div><span className="font-bold">カラー№:</span> {reportMeta.カラーNo || "未入力"}</div>
+                <div><span className="font-bold">担当者:</span> {reportMeta.担当者 || "未入力"}</div>
+              </div>
+            </div>
+            
+            {selectedAreas.length === 0 ? (
+              <p className="text-center mt-10 font-bold text-gray-500">選択された部位がありません。</p>
+            ) : (
+              <div className="space-y-6">
+                {selectedAreas.map((area) => {
+                  const currentWorkType = workTypes[area.label] || 'repair';
+                  const filteredItems = getFilteredItems(area);
+                  const groupedItems = groupItemsByCategory(filteredItems);
+                    
+                  const checkedCount = filteredItems.filter(item => checkedItems[`${area.label}::${item.name}`]).length;
+                  
+                  return (
+                    <div key={area.label} className="print-avoid-break border-2 border-gray-600 rounded-lg overflow-hidden">
+                      <div className="bg-gray-100 border-b-2 border-gray-600 p-2 px-4 flex justify-between items-center">
+                        <h2 className="text-lg font-bold flex items-center">
+                          {area.label}
+                          {area.areaKey !== '共通項目' && (
+                            <span className="ml-3 text-xs font-bold text-gray-700 border border-gray-400 px-2 py-0.5 rounded bg-white">
+                              {currentWorkType === 'new' ? '新品交換' : currentWorkType === 'used' ? '中古交換' : '修理'}
+                            </span>
+                          )}
+                        </h2>
+                        <span className="text-sm font-bold">チェック済: {checkedCount} / {filteredItems.length} 項目</span>
+                      </div>
+                      <div className="p-4 space-y-4">
+                        {CATEGORY_ORDER.map((cat) => {
+                          const sectionItems = groupedItems[cat];
+                          if (!sectionItems || sectionItems.length === 0) return null;
+                          return (
+                            <div key={`print-${cat}`}>
+                              <div className="text-xs font-bold border border-black inline-block px-2 py-0.5 mb-2">
+                                {CATEGORY_LABEL[cat]}
+                              </div>
+                              <div className="grid grid-cols-2 gap-y-3 gap-x-6">
+                                {sectionItems.map((item, idx) => {
+                                  const itemKey = `${area.label}::${item.name}`;
+                                  const isChecked = !!checkedItems[itemKey];
+                                  return (
+                                    <div key={`${cat}-${idx}`} className="flex items-start">
+                                      <div className={`w-5 h-5 border-2 border-black flex-shrink-0 flex items-center justify-center mr-2 mt-0.5 ${isChecked ? 'bg-black text-white' : 'bg-white'}`}>
+                                        {isChecked && <Check className="w-4 h-4 stroke-[4]" />}
+                                      </div>
+                                      <div className="flex-1 leading-snug">
+                                        <span className={`text-sm ${isChecked ? 'font-black' : 'text-gray-700'}`}>
+                                          {item.name}
+                                        </span>
+                                        {item.estimate && (
+                                          <span className="ml-1.5 text-[10px] text-gray-600 font-medium">（{item.estimate}）</span>
+                                        )}
+                                        {item.isKeyPoint && !isChecked && (
+                                          <span className="ml-2 text-[10px] border border-black px-1 font-bold inline-block whitespace-nowrap bg-gray-100">
+                                            未確認
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* リセット確認モーダル */}
+          {showConfirm && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in print:hidden">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">確認</h3>
+                <p className="text-gray-600 mb-6 text-sm">すべてのチェック状態と部位選択をリセットしますか？</p>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setShowConfirm(false)} className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">キャンセル</button>
+                  <button onClick={executeReset} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm">リセットする</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* トースト通知 */}
+          {toastMessage && (
+            <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-5 py-3 rounded-lg shadow-2xl z-50 flex items-center text-sm font-medium animate-fade-in-up print:hidden">
+              <Info className="w-5 h-5 mr-2 text-blue-400" />
+              {toastMessage}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const rootElement = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(<App />);
+  </script>
+</body>
+</html>
