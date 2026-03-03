@@ -363,6 +363,13 @@ async function syncCardToSheet(task) {
   }
 }
 
+const shouldSyncToSheetOnStatusChange = (prevStatus, nextStatus) => {
+  if (!SHEET_SYNC_URL) return false;
+  if (!nextStatus) return false;
+  // 「入庫済み」にステータスが変わったタイミングでのみ同期（重複防止のため、前が received だった場合は除外）
+  return prevStatus !== 'received' && nextStatus === 'received';
+};
+
 function getStaffOptionsConfig() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STAFF_OPTIONS_KEY) : null;
@@ -1516,16 +1523,19 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   useOutsideClick(accountMenuRef, () => setIsAccountMenuOpen(false));
   const enableWeekGrouping = currentBoardId === 'planning';
   const isNfcMode = !!nfcTaskId;
+  const [nfcBoardId, setNfcBoardId] = useState('body');
 
   const selectedTask = tasks.find(t => t.id === selectedTaskId) || null;
 
-  // NFCタグ経由で開かれた場合は、対象カードを選択し、全作業ボードを表示
+  // NFCタグ経由で開かれた場合は、対象カードを選択し、指定ボード（鈑金 or 塗装）を表示
   useEffect(() => {
     if (!nfcTaskId) return;
-    setCurrentBoardId('main');
+    // NFCモードでは鈑金ボード（body）または塗装ボード（paint）を対象にする
+    const targetBoard = nfcBoardId === 'paint' ? 'paint' : 'body';
+    setCurrentBoardId(targetBoard);
     setCurrentView('board');
     setSelectedTaskId(nfcTaskId);
-  }, [nfcTaskId]);
+  }, [nfcTaskId, nfcBoardId]);
 
   // ローカルキャッシュ（ブラウザ単位）に保存
   useEffect(() => {
@@ -1607,7 +1617,24 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       </div>
       <div className="mt-2 flex gap-1">
         {task.dots.map((dotColor, i) => (
-          <div key={i} className={`w-2.5 h-2.5 rounded-full border border-gray-400 ${dotColor === 'red' ? 'bg-red-500' : dotColor === 'blue' ? 'bg-blue-500' : dotColor === 'yellow' ? 'bg-yellow-400' : dotColor === 'green' ? 'bg-green-500' : dotColor === 'purple' ? 'bg-purple-500' : 'bg-white'}`}></div>
+          <div
+            key={i}
+            className={`w-2.5 h-2.5 rounded-full border border-gray-400 ${
+              dotColor === 'red'
+                ? 'bg-red-500'
+                : dotColor === 'yellow'
+                ? 'bg-yellow-400'
+                : dotColor === 'blue'
+                ? 'bg-blue-500'
+                : dotColor === 'green'
+                ? 'bg-green-500'
+                : dotColor === 'black'
+                ? 'bg-black'
+                : dotColor === 'brown'
+                ? 'bg-amber-800'
+                : 'bg-white'
+            }`}
+          ></div>
         ))}
       </div>
       {/* ホバー時の説明＋画像サムネイルポップアップ */}
@@ -1725,7 +1752,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       && (!searchFilters.color || (task.color || 'bg-white') === searchFilters.color);
   };
   const filteredTasks = tasks.filter(matchesSearch);
-  const CARD_COLOR_OPTIONS = ['bg-white', 'bg-yellow-300', 'bg-green-400', 'bg-cyan-300', 'bg-red-400', 'bg-purple-400', 'bg-blue-400', 'bg-gray-300'];
+  const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400'];
   const hasActiveFilters = Object.values(searchFilters).some(v => v && v.trim() !== '');
 
   // 納車ボード: 支払い済み列は表示しない。完了に置いたカードは看板に表示しない（データは残す）
@@ -1786,6 +1813,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     setTasks(prev => prev.map(t => (t.id === draggedTaskId ? updatedTask : t)));
     if (isFirebaseConfigured()) {
       upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
+      if (shouldSyncToSheetOnStatusChange(currentTask.status, updatedTask.status)) {
+        syncCardToSheet(updatedTask);
+      }
     }
     setDraggedTaskId(null);
   };
@@ -1840,6 +1870,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   };
 
   const handleTaskUpdate = (updatedTask) => {
+    const prevTask = tasks.find(t => t.id === updatedTask.id) || null;
     setTasks(prev => prev.map(t => {
       if (t.id !== updatedTask.id) return t;
       // 入庫ボードでは、入庫日が入ったカードを「入庫日未定」のままにしないよう、曜日カラムへ自動で移動
@@ -1871,6 +1902,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     }
     if (isFirebaseConfigured()) {
       upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
+      if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, updatedTask.status)) {
+        syncCardToSheet(updatedTask);
+      }
     }
   };
 
@@ -2033,11 +2067,34 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   <div className="flex gap-2 h-full w-full min-w-0">
                     {isNfcMode && selectedTask && (
                       <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
-                          <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
-                            {selectedTask.car} {selectedTask.number} / {selectedTask.assignee}
-                          </span>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
+                            <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
+                              {selectedTask.car} {selectedTask.number} / {selectedTask.assignee}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-gray-500">対象ボード:</span>
+                            <button
+                              type="button"
+                              onClick={() => setNfcBoardId('body')}
+                              className={`px-2 py-0.5 rounded-l border text-[10px] ${
+                                nfcBoardId === 'body' ? 'bg-amber-600 border-amber-700 text-white' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
+                              }`}
+                            >
+                              鈑金
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNfcBoardId('paint')}
+                              className={`px-2 py-0.5 rounded-r border text-[10px] -ml-px ${
+                                nfcBoardId === 'paint' ? 'bg-amber-600 border-amber-700 text-white' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
+                              }`}
+                            >
+                              塗装
+                            </button>
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {boardColumns.map(col => {
@@ -2621,12 +2678,56 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                 <div>
                   <div className="flex gap-3 mb-2">
                     {formData.dots.map((dotColor, index) => (
-                      <button type="button" key={index} onClick={() => setActiveDotIndex(index)} className={`w-6 h-6 rounded-full border-2 ${activeDotIndex === index ? 'ring-2 ring-offset-1 ring-blue-500' : ''} ${dotColor === 'red' ? 'border-red-500 bg-red-100' : dotColor === 'yellow' ? 'border-yellow-400 bg-yellow-100' : dotColor === 'blue' ? 'border-blue-500 bg-blue-100' : dotColor === 'green' ? 'border-green-500 bg-green-100' : dotColor === 'purple' ? 'border-purple-500 bg-purple-100' : 'border-gray-400 bg-white'}`}></button>
+                      <button
+                        type="button"
+                        key={index}
+                        onClick={() => setActiveDotIndex(index)}
+                        className={`w-6 h-6 rounded-full border-2 ${
+                          activeDotIndex === index ? 'ring-2 ring-offset-1 ring-blue-500' : ''
+                        } ${
+                          dotColor === 'red'
+                            ? 'border-red-500 bg-red-100'
+                            : dotColor === 'yellow'
+                            ? 'border-yellow-400 bg-yellow-100'
+                            : dotColor === 'blue'
+                            ? 'border-blue-500 bg-blue-100'
+                            : dotColor === 'green'
+                            ? 'border-green-500 bg-green-100'
+                            : dotColor === 'black'
+                            ? 'border-black bg-black/70'
+                            : dotColor === 'brown'
+                            ? 'border-amber-800 bg-amber-800/80'
+                            : 'border-gray-400 bg-white'
+                        }`}
+                      ></button>
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    {['red', 'yellow', 'blue', 'green', 'white', 'purple'].map(color => (
-                      <button type="button" key={color} onClick={() => {const newDots = [...formData.dots]; newDots[activeDotIndex] = color; setFormData({...formData, dots: newDots});}} className={`w-5 h-5 rounded border border-gray-300 hover:scale-110 transition-transform ${color === 'red' ? 'bg-red-500' : color === 'yellow' ? 'bg-yellow-400' : color === 'blue' ? 'bg-blue-500' : color === 'green' ? 'bg-green-500' : color === 'purple' ? 'bg-purple-500' : 'bg-white'}`}></button>
+                    {['red', 'yellow', 'blue', 'green', 'black', 'brown', 'white'].map(color => (
+                      <button
+                        type="button"
+                        key={color}
+                        onClick={() => {
+                          const newDots = [...formData.dots];
+                          newDots[activeDotIndex] = color;
+                          setFormData({ ...formData, dots: newDots });
+                        }}
+                        className={`w-5 h-5 rounded border border-gray-300 hover:scale-110 transition-transform ${
+                          color === 'red'
+                            ? 'bg-red-500'
+                            : color === 'yellow'
+                            ? 'bg-yellow-400'
+                            : color === 'blue'
+                            ? 'bg-blue-500'
+                            : color === 'green'
+                            ? 'bg-green-500'
+                            : color === 'black'
+                            ? 'bg-black'
+                            : color === 'brown'
+                            ? 'bg-amber-800'
+                            : 'bg-white'
+                        }`}
+                      ></button>
                     ))}
                   </div>
                 </div>
@@ -2635,7 +2736,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-center">
                 <label className="w-32 text-right text-sm font-medium text-gray-700">カードの色</label>
                 <div className="flex gap-1 flex-wrap flex-1">
-                  {['bg-white', 'bg-yellow-300', 'bg-green-400', 'bg-cyan-300', 'bg-red-400', 'bg-purple-400', 'bg-blue-400', 'bg-gray-300'].map(colorClass => (
+                  {['bg-white', 'bg-cyan-300', 'bg-yellow-400'].map(colorClass => (
                     <button type="button" key={colorClass} onClick={() => setFormData({...formData, color: colorClass})} className={`w-6 h-6 rounded border ${colorClass} ${formData.color === colorClass ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`}></button>
                   ))}
                 </div>
@@ -2946,17 +3047,47 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                     type="button"
                     key={index}
                     onClick={() => setActiveDotIndex(index)}
-                    className={`w-6 h-6 rounded-full border-2 flex-shrink-0 ${activeDotIndex === index ? 'ring-2 ring-offset-1 ring-blue-500' : ''} ${dotColor === 'red' ? 'border-red-500 bg-red-100' : dotColor === 'yellow' ? 'border-yellow-400 bg-yellow-100' : dotColor === 'blue' ? 'border-blue-500 bg-blue-100' : dotColor === 'green' ? 'border-green-500 bg-green-100' : dotColor === 'purple' ? 'border-purple-500 bg-purple-100' : 'border-gray-400 bg-white'}`}
+                    className={`w-6 h-6 rounded-full border-2 flex-shrink-0 ${
+                      activeDotIndex === index ? 'ring-2 ring-offset-1 ring-blue-500' : ''
+                    } ${
+                      dotColor === 'red'
+                        ? 'border-red-500 bg-red-100'
+                        : dotColor === 'yellow'
+                        ? 'border-yellow-400 bg-yellow-100'
+                        : dotColor === 'blue'
+                        ? 'border-blue-500 bg-blue-100'
+                        : dotColor === 'green'
+                        ? 'border-green-500 bg-green-100'
+                        : dotColor === 'black'
+                        ? 'border-black bg-black/70'
+                        : dotColor === 'brown'
+                        ? 'border-amber-800 bg-amber-800/80'
+                        : 'border-gray-400 bg-white'
+                    }`}
                   />
                 ))}
               </div>
               <div className="flex gap-2 flex-wrap">
-                {['red', 'yellow', 'blue', 'green', 'white', 'purple'].map(color => (
+                {['red', 'yellow', 'blue', 'green', 'black', 'brown', 'white'].map(color => (
                   <button
                     type="button"
                     key={color}
                     onClick={() => handleDotColor(color)}
-                    className={`w-5 h-5 rounded border border-gray-300 hover:scale-110 transition-transform ${color === 'red' ? 'bg-red-500' : color === 'yellow' ? 'bg-yellow-400' : color === 'blue' ? 'bg-blue-500' : color === 'green' ? 'bg-green-500' : color === 'purple' ? 'bg-purple-500' : 'bg-white'}`}
+                    className={`w-5 h-5 rounded border border-gray-300 hover:scale-110 transition-transform ${
+                      color === 'red'
+                        ? 'bg-red-500'
+                        : color === 'yellow'
+                        ? 'bg-yellow-400'
+                        : color === 'blue'
+                        ? 'bg-blue-500'
+                        : color === 'green'
+                        ? 'bg-green-500'
+                        : color === 'black'
+                        ? 'bg-black'
+                        : color === 'brown'
+                        ? 'bg-amber-800'
+                        : 'bg-white'
+                    }`}
                   />
                 ))}
               </div>
@@ -2965,7 +3096,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
 
           <Accordion title="カードの色" defaultOpen={true}>
             <div className="flex gap-1 flex-wrap">
-              {['bg-white', 'bg-yellow-300', 'bg-green-400', 'bg-cyan-300', 'bg-red-400', 'bg-purple-400', 'bg-blue-400', 'bg-gray-300'].map(colorClass => (
+              {['bg-white', 'bg-cyan-300', 'bg-yellow-400'].map(colorClass => (
                 <button
                   type="button"
                   key={colorClass}
