@@ -47,6 +47,23 @@ const normalizeKana = (str) => {
   ).toLowerCase();
 };
 
+const ENTRY_PRIMARY_OPTIONS = ['個人', '保険', '業者', '代協'];
+const ENTRY_SECONDARY_PRESETS = {
+  業者: ['ヤナセ', 'イマムラ', 'カーポリッシュ'],
+  保険: [
+    '東京海上日動',
+    '損保ジャパン',
+    '三井住友海上',
+    'あいおいニッセイ同和',
+    '日新火災',
+    '共栄火災',
+    'JA共済',
+    '県民共済',
+    'コープ共済',
+    'その他'
+  ]
+};
+
 const getTaskDateForGrouping = (task) => task.outDate || task.inDate || '';
 
 const getWeekInfo = (dateStr) => {
@@ -465,6 +482,7 @@ const INITIAL_TASKS = [
   {
     id: 't1', status: 'received', color: 'bg-white',
     car: 'レクサス', number: '501', colorNo: '', assignee: 'T 個人 杉村',
+    entryPrimary: '個人', entryDetail: '',
     inDate: '2026-02-11', outDate: '', loanerType: 'none', dots: ['red', 'white', 'white', 'white'],
     characters: ['car', 'paint'], tasks: ['check'],
     statusEnteredAt: new Date().toISOString(),
@@ -473,6 +491,7 @@ const INITIAL_TASKS = [
   {
     id: 't2', status: 'received', color: 'bg-blue-400',
     car: 'ワゴンR', number: 'R223', colorNo: '', assignee: 'あ 下田',
+    entryPrimary: '個人', entryDetail: '',
     inDate: '2026-02-18', outDate: '2026-02-19', loanerType: 'loaner_k', dots: ['blue', 'blue', 'blue', 'blue'],
     characters: ['car'], tasks: [],
     statusEnteredAt: new Date().toISOString(),
@@ -481,6 +500,7 @@ const INITIAL_TASKS = [
   {
     id: 't3', status: 'b_wait', color: 'bg-yellow-300',
     car: 'ラパン', number: '853', colorNo: '', assignee: '米 T 松永',
+    entryPrimary: '個人', entryDetail: '',
     inDate: '2026-02-27', outDate: '', loanerType: 'loaner_k', dots: ['yellow', 'yellow', 'white', 'white'],
     characters: ['wrench'], tasks: ['file'],
     statusEnteredAt: new Date().toISOString(),
@@ -489,6 +509,7 @@ const INITIAL_TASKS = [
   {
     id: 't4', status: 'b_doing', color: 'bg-white',
     car: 'ノート', number: '2554', colorNo: '', assignee: 'あ 南',
+    entryPrimary: '個人', entryDetail: '',
     inDate: '2026-02-14', outDate: '2026-02-15', loanerType: 'rental', dots: ['red', 'yellow', 'white', 'white'],
     characters: [], tasks: ['settings'],
     statusEnteredAt: new Date().toISOString(),
@@ -497,6 +518,7 @@ const INITIAL_TASKS = [
   {
     id: 't5', status: 'prep_p', color: 'bg-blue-400',
     car: 'ムーブ', number: '3824', colorNo: '', assignee: 'T ソニー 富田',
+    entryPrimary: '個人', entryDetail: '',
     inDate: '2026-02-10', outDate: '2026-02-20', loanerType: 'none', dots: ['white', 'white', 'blue', 'white'],
     characters: ['paint'], tasks: [],
     statusEnteredAt: new Date().toISOString(),
@@ -2390,6 +2412,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
 function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     maker: '', car: '', number: '', colorNo: '', assignee: '', lineUrl: '',
+    entryPrimary: '個人',
+    entryDetail: '',
     inDate: getTodayString(), outDate: '',
     loanerType: 'none',
     loanerCarId: '',
@@ -2623,6 +2647,51 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                    value={formData.lineUrl || ''}
                    onChange={e => setFormData({...formData, lineUrl: e.target.value})}
                  />
+              </div>
+
+              {/* 入庫先ジャンル */}
+              <div className="flex gap-4 items-start">
+                <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">入庫先ジャンル</label>
+                <div className="flex-1 space-y-2">
+                  <select
+                    className="w-full max-w-[200px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
+                    value={formData.entryPrimary}
+                    onChange={(e) => setFormData({ ...formData, entryPrimary: e.target.value, entryDetail: '' })}
+                  >
+                    {ENTRY_PRIMARY_OPTIONS.map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                      placeholder={formData.entryPrimary === '個人'
+                        ? '例: 個人（紹介元などあれば記載）'
+                        : formData.entryPrimary === '業者'
+                        ? '例: ヤナセ ○○店'
+                        : formData.entryPrimary === '保険'
+                        ? '例: 東京海上日動 ○○支社'
+                        : '例: 代車 / レンタカー枠 など'}
+                      value={formData.entryDetail}
+                      onChange={(e) => setFormData({ ...formData, entryDetail: e.target.value })}
+                    />
+                    {(formData.entryPrimary === '業者' || formData.entryPrimary === '保険') && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {(ENTRY_SECONDARY_PRESETS[formData.entryPrimary] || []).map(name => (
+                          <button
+                            type="button"
+                            key={name}
+                            onClick={() => setFormData({ ...formData, entryDetail: name })}
+                            className="px-2 py-0.5 rounded border border-gray-300 text-xs text-gray-700 hover:bg-gray-100"
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-4 items-center">
@@ -2950,6 +3019,43 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">顧客:</span>
                <input type="text" value={task.assignee || ''} onChange={(e) => onUpdate({ ...task, assignee: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+            </div>
+            <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+               <span className="text-gray-500">入庫先ジャンル:</span>
+               <div className="space-y-1">
+                 <select
+                   value={task.entryPrimary || '個人'}
+                   onChange={(e) => onUpdate({ ...task, entryPrimary: e.target.value })}
+                   className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[160px] bg-white"
+                 >
+                   {ENTRY_PRIMARY_OPTIONS.map(opt => (
+                     <option key={opt} value={opt}>{opt}</option>
+                   ))}
+                 </select>
+                 <div className="flex flex-col gap-1">
+                   <input
+                     type="text"
+                     value={task.entryDetail || ''}
+                     onChange={(e) => onUpdate({ ...task, entryDetail: e.target.value })}
+                     className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]"
+                     placeholder="詳細（例: ヤナセ、東京海上日動 など）"
+                   />
+                   {(task.entryPrimary === '業者' || task.entryPrimary === '保険') && (
+                     <div className="flex flex-wrap gap-1">
+                       {(ENTRY_SECONDARY_PRESETS[task.entryPrimary] || []).map(name => (
+                         <button
+                           key={name}
+                           type="button"
+                           onClick={() => onUpdate({ ...task, entryDetail: name })}
+                           className="px-2 py-0.5 rounded border border-gray-300 text-xs text-gray-700 hover:bg-gray-100"
+                         >
+                           {name}
+                         </button>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+               </div>
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">LINEリンク:</span>
