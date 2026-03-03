@@ -283,7 +283,8 @@ const LOANER_OPTIONS = [
   { id: 'none', label: '不要 (なし)' },
   { id: 'loaner_k', label: '代車 (軽自動車)' },
   { id: 'loaner_n', label: '代車 (普通車)' },
-  { id: 'rental', label: 'レンタカー手配' }
+  { id: 'rental', label: 'レンタカー手配' },
+  { id: 'other_rental', label: '他社レンタカー' }
 ];
 
 // ガントチャート用 フリートデータ（社用車・レンタカー）
