@@ -1585,6 +1585,26 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     }
   });
   const didSeedFleetRef = useRef(false);
+
+  const deliveryCompletedTasks = useMemo(() => {
+    if (currentBoardId !== 'delivery') return [];
+    return tasks
+      .filter((t) => {
+        if (t.status !== 'completed') return false;
+        if (!Array.isArray(t.statusHistory)) return false;
+        return t.statusHistory.some((h) => h && h.status === 'delivery_today');
+      })
+      .slice()
+      .sort((a, b) => {
+        const getTime = (t) => {
+          const d = t.outDate || t.statusEnteredAt;
+          if (!d) return 0;
+          const dt = new Date(d);
+          return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+        };
+        return getTime(b) - getTime(a);
+      });
+  }, [currentBoardId, tasks]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
@@ -2388,6 +2408,33 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   </div>
                 </div>
               </div>
+
+              {currentBoardId === 'delivery' && deliveryCompletedTasks.length > 0 && (
+                <div className="mt-4 bg-white rounded-md border border-gray-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold text-gray-800">納車完了履歴</div>
+                    <div className="text-xs text-gray-500">{deliveryCompletedTasks.length}件</div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 text-xs">
+                    {deliveryCompletedTasks.map((task) => (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => setSelectedTaskId(task.id)}
+                        className="w-full text-left px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                        <span className="flex-1 min-w-0 truncate" title={`${task.assignee || ''} ${task.car || ''} ${task.number || ''}`.trim()}>
+                          {(task.assignee || '').trim() || '担当未設定'} / {(task.car || '').trim() || '車種未設定'} {task.number || ''}
+                        </span>
+                        <span className="text-[11px] text-gray-500 flex-shrink-0">
+                          {task.outDate || task.inDate || ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {selectedTaskId && (
                 <div className="w-[450px] flex-shrink-0 bg-white flex flex-col h-full overflow-hidden shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.1)] z-20">
