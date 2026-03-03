@@ -2413,26 +2413,28 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden relative">
+    <div className="flex flex-col min-h-[100dvh] h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden relative" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       {calendarToast && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium shadow-lg animate-fade-in">
+        <div className="absolute left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium shadow-lg animate-fade-in" style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}>
           {calendarToast}
         </div>
       )}
-      <header className="bg-white border-b border-gray-200 flex items-center justify-between px-4 py-2 shadow-sm z-30">
+      <header className="bg-white border-b border-gray-200 flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shadow-sm z-30 min-h-[3rem]" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         <div className="flex-1 min-w-0" aria-hidden />
-        <div className="flex items-center gap-3 justify-center relative" ref={headerMenuRef}>
-          <h1 className="text-lg font-bold text-gray-800">{APP_NAME}</h1>
+        <div className="flex items-center gap-1 sm:gap-3 justify-center relative min-w-0 flex-shrink" ref={headerMenuRef}>
+          <h1 className="text-sm sm:text-lg font-bold text-gray-800 truncate hidden sm:block" style={{ maxWidth: '8rem' }}>{APP_NAME}</h1>
+          <h1 className="text-sm font-bold text-gray-800 truncate sm:hidden" style={{ maxWidth: '2.5rem' }}>BB</h1>
           <button
             type="button"
             onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}
-            className={`text-sm font-medium rounded px-2 py-1.5 transition-colors flex items-center gap-1 ${isHeaderMenuOpen ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+            className={`text-xs sm:text-sm font-medium rounded px-1.5 sm:px-2 py-1.5 transition-colors flex items-center gap-0.5 sm:gap-1 shrink-0 ${isHeaderMenuOpen ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
             title="ボードを切り替え"
           >
-            {currentView === 'board' ? currentBoard.title : '代車・レンタカー 貸出状況'}
+            <span className="hidden sm:inline truncate max-w-[200px]">{currentView === 'board' ? currentBoard.title : '代車・レンタカー 貸出状況'}</span>
+            <span className="sm:hidden">{currentView === 'board' ? 'ボード' : '代車'}</span>
             {currentView === 'board' && currentBoardId === 'main' && <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </button>
-          <Button onClick={() => setIsCreateModalOpen(true)}>カード作成</Button>
+          <Button onClick={() => setIsCreateModalOpen(true)} className="!px-2 sm:!px-3 !py-1.5 !text-xs sm:!text-sm shrink-0"><span className="hidden sm:inline">カード作成</span><span className="sm:hidden">作成</span></Button>
           {isHeaderMenuOpen && (
             <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-80 bg-white border border-gray-200 shadow-xl rounded-md py-2 z-50">
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">最近のボード</div>
@@ -2447,13 +2449,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             </div>
           )}
         </div>
-        <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
-          <Bell className="w-5 h-5 text-gray-500 hover:text-gray-700 cursor-pointer" />
-          <div className="relative" ref={searchMenuRef}>
-            <button onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)} className={`px-3 py-1.5 rounded flex items-center gap-1 ${isSearchMenuOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'} text-gray-700`} title="カード検索">
-              <Search className="w-4 h-4" />
-              検索
-              {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+        <div className="flex-1 flex items-center justify-end gap-1 sm:gap-3 min-w-0 flex-shrink-0">
+          <Bell className="w-5 h-5 text-gray-500 hover:text-gray-700 cursor-pointer flex-shrink-0" />
+          <div className="relative flex-shrink-0" ref={searchMenuRef}>
+            <button onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)} className={`p-1.5 sm:px-3 sm:py-1.5 rounded flex items-center gap-1 ${isSearchMenuOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'} text-gray-700`} title="カード検索">
+              <Search className="w-4 h-4 flex-shrink-0" />
+              <span className="hidden sm:inline">検索</span>
+              {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 absolute -top-0.5 -right-0.5 sm:static sm:ml-0" />}
             </button>
             {isSearchMenuOpen && (
               <div className="absolute top-full right-0 mt-1 w-80 bg-white border border-gray-200 shadow-xl rounded-md p-4 z-50">
