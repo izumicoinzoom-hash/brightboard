@@ -55,11 +55,8 @@ const ENTRY_SECONDARY_PRESETS = {
     '損保ジャパン',
     '三井住友海上',
     'あいおいニッセイ同和',
-    '日新火災',
-    '共栄火災',
     'JA共済',
-    '県民共済',
-    'コープ共済',
+    'ソニー損保',
     'その他'
   ]
 };
@@ -2672,7 +2669,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                         ? '例: ヤナセ ○○店'
                         : formData.entryPrimary === '保険'
                         ? '例: 東京海上日動 ○○支社'
-                        : '例: 代車 / レンタカー枠 など'}
+                        : '代理店名'}
                       value={formData.entryDetail}
                       onChange={(e) => setFormData({ ...formData, entryDetail: e.target.value })}
                     />
