@@ -3767,8 +3767,8 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 </div>
                 <input
                   type="file"
-                  accept=".pdf,image/jpeg,image/png,image/webp,image/gif"
-                  multiple
+                  accept="image/*,.pdf"
+                  capture="environment"
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   title="PDFまたは画像を選択"
@@ -3842,6 +3842,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // ローカル開発環境（localhost等）の場合は Firebase 認証を使わず、自動的にログイン扱いにする
+    const isLocalHost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname === '');
+    if (isLocalHost) {
+      setCurrentUser('ローカルユーザー');
+      setIsLoggedIn(true);
+      setIsAuthLoading(false);
+      return;
+    }
+
     if (!isFirebaseConfigured()) {
       setIsAuthLoading(false);
       return;
