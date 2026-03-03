@@ -1592,6 +1592,48 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   });
   const didSeedFleetRef = useRef(false);
 
+  // 予約だけ存在してタスクがないケースを補完しておく（カードが消えないようにする）
+  useEffect(() => {
+    if (!Array.isArray(reservations) || reservations.length === 0) return;
+    setTasks((prev) => {
+      const existingIds = new Set(prev.map((t) => t.id));
+      const additions = [];
+      const nowIso = new Date().toISOString();
+      reservations.forEach((res) => {
+        if (!res.taskId || existingIds.has(res.taskId)) return;
+        additions.push({
+          id: res.taskId,
+          status: 'unscheduled',
+          color: 'bg-white',
+          maker: '',
+          car: '',
+          number: '',
+          colorNo: '',
+          assignee: res.taskName || '',
+          inDate: res.start || '',
+          inTime: '09:00',
+          outDate: res.end || '',
+          loanerType: 'none',
+          loanerCarId: res.carId || '',
+          dots: ['white', 'white', 'white', 'white'],
+          characters: [],
+          tasks: [],
+          statusEnteredAt: nowIso,
+          statusHistory: [],
+          attachments: [],
+        });
+      });
+      if (!additions.length) return prev;
+      const next = [...prev, ...additions];
+      if (isFirebaseConfigured()) {
+        additions.forEach((task) => {
+          upsertDocument('boards/main/tasks', task.id, task).catch(() => {});
+        });
+      }
+      return next;
+    });
+  }, [reservations]);
+
   const deliveryCompletedTasks = useMemo(() => {
     if (currentBoardId !== 'delivery') return [];
     return tasks
