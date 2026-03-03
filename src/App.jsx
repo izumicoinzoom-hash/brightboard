@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar, MessageCircle
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar, MessageCircle, Pencil
 } from 'lucide-react';
 import {
   getFirebaseAuth,
@@ -1027,6 +1027,9 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
 function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservations, setTasks, onBack }) {
   const [newCarName, setNewCarName] = useState('');
   const [newCarType, setNewCarType] = useState(FLEET_TYPE_OPTIONS[0]);
+  const [editingCarId, setEditingCarId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingType, setEditingType] = useState(FLEET_TYPE_OPTIONS[0]);
 
   const handleAdd = async () => {
     if (!newCarName.trim()) return;
@@ -1073,6 +1076,32 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
     } catch (_) {}
   };
 
+  const beginEdit = (car) => {
+    setEditingCarId(car.id);
+    setEditingName(car.name || '');
+    setEditingType(car.type || FLEET_TYPE_OPTIONS[0]);
+  };
+
+  const cancelEdit = () => {
+    setEditingCarId(null);
+    setEditingName('');
+    setEditingType(FLEET_TYPE_OPTIONS[0]);
+  };
+
+  const saveEdit = async () => {
+    if (!editingCarId) return;
+    const trimmedName = editingName.trim();
+    if (!trimmedName) return;
+    setFleetCars(prev => prev.map(c => c.id === editingCarId ? { ...c, name: trimmedName, type: editingType } : c));
+    try {
+      const target = fleetCars.find(c => c.id === editingCarId);
+      if (target) {
+        await upsertDocument('fleetCars', editingCarId, { ...target, name: trimmedName, type: editingType });
+      }
+    } catch (_) {}
+    cancelEdit();
+  };
+
   return (
     <>
       <div className="flex items-center justify-between mb-4">
@@ -1115,8 +1144,44 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
           {fleetCars.map(car => (
             <div key={car.id} className="px-4 py-3 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-800 truncate" title={car.name}>{car.name}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{car.type}</div>
+                {editingCarId === car.id ? (
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      className="border border-gray-300 rounded px-2 py-1 text-xs w-full"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                    />
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+                      value={editingType}
+                      onChange={(e) => setEditingType(e.target.value)}
+                    >
+                      {FLEET_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <div className="flex gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={saveEdit}
+                        className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] hover:bg-blue-700"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        className="px-2 py-0.5 rounded border border-gray-300 text-[11px] text-gray-600 hover:bg-gray-50"
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-sm font-medium text-gray-800 truncate" title={car.name}>{car.name}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{car.type}</div>
+                  </>
+                )}
               </div>
               <div className="flex flex-col items-end gap-1 mr-2">
                 <span className="text-[10px] text-gray-500">車検満了日</span>
@@ -1136,6 +1201,14 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
                 <option value="maintenance">整備中</option>
                 <option value="inactive">使用停止</option>
               </select>
+              <button
+                type="button"
+                onClick={() => beginEdit(car)}
+                className="ml-2 p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                title="編集"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => handleRemove(car)}
