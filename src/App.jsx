@@ -1601,6 +1601,17 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         return getTime(b) - getTime(a);
       });
   }, [currentBoardId, tasks]);
+
+  const restoreFromDeliveryHistory = (taskId) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.status !== 'completed') return;
+    const prevStatus = getPreviousStatus(task);
+    const updated = transitionTaskStatus(task, prevStatus);
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+    if (isFirebaseConfigured()) {
+      upsertDocument('boards/main/tasks', updated.id, updated);
+    }
+  };
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
@@ -1965,6 +1976,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     if (!col || !col.id) return 'received';
     const list = getColumnStatuses(col);
     return (list && list[0]) ? list[0] : col.id;
+  };
+
+  const getPreviousStatus = (task) => {
+    const history = Array.isArray(task.statusHistory) ? task.statusHistory : [];
+    if (!history.length) return 'delivery_wait';
+    const last = history[history.length - 1];
+    return last && last.status ? last.status : 'delivery_wait';
   };
 
   const transitionTaskStatus = (task, newStatus, extra = {}) => {
@@ -2413,20 +2431,35 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   </div>
                   <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 text-xs">
                     {deliveryCompletedTasks.map((task) => (
-                      <button
+                      <div
                         key={task.id}
-                        type="button"
-                        onClick={() => setSelectedTaskId(task.id)}
-                        className="w-full text-left px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2"
                       >
-                        <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                        <span className="flex-1 min-w-0 truncate" title={`${task.assignee || ''} ${task.car || ''} ${task.number || ''}`.trim()}>
-                          {(task.assignee || '').trim() || '担当未設定'} / {(task.car || '').trim() || '車種未設定'} {task.number || ''}
-                        </span>
-                        <span className="text-[11px] text-gray-500 flex-shrink-0">
-                          {task.outDate || task.inDate || ''}
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTaskId(task.id)}
+                          className="flex-1 min-w-0 text-left flex items-center gap-2"
+                        >
+                          <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                          <span className="flex-1 min-w-0 truncate" title={`${task.assignee || ''} ${task.car || ''} ${task.number || ''}`.trim()}>
+                            {(task.assignee || '').trim() || '担当未設定'} / {(task.car || '').trim() || '車種未設定'} {task.number || ''}
+                          </span>
+                          <span className="text-[11px] text-gray-500 flex-shrink-0">
+                            {task.outDate || task.inDate || ''}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm('このカードを完了にする前にいた列へ戻します。よろしいですか？')) {
+                              restoreFromDeliveryHistory(task.id);
+                            }
+                          }}
+                          className="ml-2 px-2 py-0.5 text-[11px] rounded border border-gray-300 text-gray-600 hover:bg-gray-100 flex-shrink-0"
+                        >
+                          元に戻す
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
