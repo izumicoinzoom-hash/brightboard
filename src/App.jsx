@@ -1660,6 +1660,26 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       upsertDocument('boards/main/tasks', updated.id, updated);
     }
   };
+  const handleMasterDeleteTask = (taskId) => {
+    const target = tasks.find((t) => t.id === taskId);
+    if (!target) return;
+    // 紐づく代車予約を削除
+    setReservations((prev) => {
+      const related = prev.filter((r) => r.taskId === taskId);
+      if (isFirebaseConfigured() && related.length > 0) {
+        related.forEach((r) => {
+          deleteDocument('boards/main/reservations', r.id).catch(() => {});
+        });
+      }
+      return prev.filter((r) => r.taskId !== taskId);
+    });
+    // タスク本体を削除
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    if (isFirebaseConfigured()) {
+      deleteDocument('boards/main/tasks', taskId).catch(() => {});
+    }
+    setSelectedTaskId(null);
+  };
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
@@ -1910,7 +1930,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     setDraggedTaskId(null);
   };
 
-  const renderTaskCard = (task) => (
+  const renderTaskCard = (task) => {
+    const receptionInitial = ((task.receptionStaff || task.assignee || '') || '').trim().charAt(0) || '';
+    const entryDetailInitial = ((task.entryDetail || '') || '').trim().charAt(0) || '';
+    return (
     <div
       key={task.id}
       draggable
@@ -1924,12 +1947,21 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
       {(task.loanerType && task.loanerType !== 'none') && (
         <div className="flex justify-end items-start mb-1 text-[10px]">
-          <div className="flex items-center bg-green-100 text-green-800 px-1 rounded" title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}>
-            <Truck className="w-3 h-3 mr-0.5"/> 代
+          <div className="flex items-center bg-green-100 text-green-800 px-1 rounded gap-0.5" title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}>
+            <Truck className="w-3 h-3" />
+            <span>代</span>
           </div>
         </div>
       )}
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
+        <div className="flex items-center gap-1 mb-0.5">
+          {receptionInitial && (
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-800 text-white text-[10px] font-medium" title="入庫担当者">{receptionInitial}</span>
+          )}
+          {entryDetailInitial && (
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-300 text-gray-800 text-[10px] font-medium" title="入庫ジャンル詳細">{entryDetailInitial}</span>
+          )}
+        </div>
         {task.car} {task.number}<br/>{task.assignee}<br/>
         <span className="text-gray-500 font-normal inline-block mt-0.5">{formatInOutDate(task.inDate, task.outDate)}</span>
       </div>
@@ -1987,7 +2019,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   // カレンダーリンクから入庫カードを1件作成（URL or sessionStorage の fromCalendar パラメータ）
   const createCardFromCalendarParams = React.useCallback((params) => {
@@ -2711,6 +2744,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     staffOptionsConfig={staffOptionsConfig}
                     onClose={() => setSelectedTaskId(null)}
                     onUpdate={handleTaskUpdate}
+                    onMasterDelete={handleMasterDeleteTask}
                   />
                 </div>
               )}
@@ -3368,7 +3402,7 @@ function Accordion({ title, children, defaultOpen = true }) {
   );
 }
 
-function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate }) {
+function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   if (!task) return null;
   const issueKey = `#${task.id.replace(/\D/g, '') || Math.floor(Math.random()*1000) + 2000}`;
@@ -3738,6 +3772,27 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             </div>
           </Accordion>
         </div>
+        {onMasterDelete && (
+          <div className="px-4 pb-4">
+            <button
+              type="button"
+              onClick={() => {
+                const code = window.prompt('マスター削除用のパスコードを入力してください。');
+                if (code === null) return;
+                if (code !== '0514') {
+                  window.alert('パスコードが違います。');
+                  return;
+                }
+                if (window.confirm('このカードを完全に削除します。紐づく代車予約も削除されます。よろしいですか？')) {
+                  onMasterDelete(task.id);
+                }
+              }}
+              className="w-full mt-2 inline-flex items-center justify-center px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-sm"
+            >
+              マスター権限で削除
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
