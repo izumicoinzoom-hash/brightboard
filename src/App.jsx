@@ -1583,6 +1583,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       return [...FLEET_CARS];
     }
   });
+  const didSeedFleetRef = useRef(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
@@ -1748,6 +1749,23 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       unsubscribeFleet && unsubscribeFleet();
     };
   }, []);
+
+  // 一度だけ、初期マスタの代車が Firestore に無い場合は補完しておく
+  useEffect(() => {
+    if (didSeedFleetRef.current) return;
+    if (!Array.isArray(fleetCars)) return;
+    const existingIds = new Set(fleetCars.map(c => c.id));
+    const toAdd = FLEET_CARS.filter(c => !existingIds.has(c.id));
+    if (toAdd.length === 0) {
+      didSeedFleetRef.current = true;
+      return;
+    }
+    didSeedFleetRef.current = true;
+    setFleetCars(prev => [...prev, ...toAdd]);
+    toAdd.forEach((car) => {
+      upsertDocument('fleetCars', car.id, car).catch(() => {});
+    });
+  }, [fleetCars]);
 
   const renderTaskCard = (task) => (
     <div
