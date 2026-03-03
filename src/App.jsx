@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar, MessageCircle
 } from 'lucide-react';
 import {
   getFirebaseAuth,
@@ -2012,7 +2012,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
 // --- カード作成モーダルコンポーネント ---
 function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
-    maker: '', car: '', number: '', colorNo: '', assignee: '',
+    maker: '', car: '', number: '', colorNo: '', assignee: '', lineUrl: '',
     inDate: getTodayString(), outDate: '',
     loanerType: 'none',
     loanerCarId: '',
@@ -2176,6 +2176,16 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-center">
                  <label className="w-32 text-right text-sm font-medium text-gray-700">顧客名</label>
                  <input type="text" className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 山田太郎" value={formData.assignee} onChange={e => setFormData({...formData, assignee: e.target.value})} />
+              </div>
+              <div className="flex gap-4 items-center">
+                 <label className="w-32 text-right text-sm font-medium text-gray-700">LINEリンク</label>
+                 <input
+                   type="url"
+                   className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm"
+                   placeholder="例: https://line.me/ti/p/..."
+                   value={formData.lineUrl || ''}
+                   onChange={e => setFormData({...formData, lineUrl: e.target.value})}
+                 />
               </div>
 
               <div className="flex gap-4 items-center">
@@ -2441,6 +2451,29 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">顧客:</span>
                <input type="text" value={task.assignee || ''} onChange={(e) => onUpdate({ ...task, assignee: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+            </div>
+            <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+               <span className="text-gray-500">LINEリンク:</span>
+               <div className="flex items-center gap-2">
+                 <input
+                   type="url"
+                   value={task.lineUrl || ''}
+                   onChange={(e) => onUpdate({ ...task, lineUrl: e.target.value })}
+                   className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]"
+                   placeholder="例: https://line.me/ti/p/..."
+                 />
+                 {task.lineUrl && (
+                   <button
+                     type="button"
+                     onClick={() => window.open(task.lineUrl, '_blank', 'noopener,noreferrer')}
+                     className="inline-flex items-center gap-1 px-2 py-1 rounded border border-green-500 text-green-700 text-xs hover:bg-green-50"
+                     title="LINEトーク画面を開く"
+                   >
+                     <MessageCircle className="w-3.5 h-3.5" />
+                     開く
+                   </button>
+                 )}
+               </div>
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">受付担当者:</span>
