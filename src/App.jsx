@@ -2345,6 +2345,24 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                           const dt = new Date(d);
                           return Number.isNaN(dt.getTime()) ? null : dt.getTime();
                         };
+                        const hasBlueDot = (task) =>
+                          Array.isArray(task.dots) && task.dots.includes('blue');
+
+                        // 納車ボードでは、青ドット優先 → 納車日(outDate)昇順 → 納車日なしを下
+                        if (currentBoardId === 'delivery') {
+                          const blueA = hasBlueDot(a);
+                          const blueB = hasBlueDot(b);
+                          if (blueA !== blueB) return blueB ? 1 : -1; // true を上に
+
+                          const da = parse(a.outDate);
+                          const db = parse(b.outDate);
+                          if (da != null && db != null) return da - db; // 早い日付を上
+                          if (da != null) return -1; // 日付ありを上
+                          if (db != null) return 1;
+                          return 0;
+                        }
+
+                        // それ以外のボードは従来どおり
                         const da = parse(a.outDate) ?? parse(a.inDate);
                         const db = parse(b.outDate) ?? parse(b.inDate);
                         if (da != null && db != null) return da - db;
