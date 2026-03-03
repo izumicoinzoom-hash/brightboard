@@ -39,6 +39,14 @@ const formatInOutDate = (inD, outD) => {
   return `${inStr} ${outStr}`;
 };
 
+// かな検索用: ひらがな・カタカナを同一視して比較するために正規化
+const normalizeKana = (str) => {
+  if (!str) return '';
+  return str.replace(/[\u3041-\u3096]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) + 0x60)
+  ).toLowerCase();
+};
+
 const getTaskDateForGrouping = (task) => task.outDate || task.inDate || '';
 
 const getWeekInfo = (dateStr) => {
@@ -338,6 +346,7 @@ const BOARD_COLUMNS_KEY = 'brightboard_board_columns';
 const STAFF_OPTIONS_KEY = 'brightboard_staff_options';
 const TASKS_CACHE_KEY = 'brightboard_tasks';
 const RESERVATIONS_CACHE_KEY = 'brightboard_reservations';
+const FLEET_CARS_KEY = 'brightboard_fleet_cars';
 
 const SHEET_SYNC_URL = import.meta.env.VITE_SHEET_SYNC_URL;
 
@@ -1410,7 +1419,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       return [];
     }
   });
-  const [fleetCars, setFleetCars] = useState([...FLEET_CARS]);
+  const [fleetCars, setFleetCars] = useState(() => {
+    try {
+      if (typeof localStorage === 'undefined') return [...FLEET_CARS];
+      const raw = localStorage.getItem(FLEET_CARS_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [...FLEET_CARS];
+    } catch {
+      return [...FLEET_CARS];
+    }
+  });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
@@ -1525,6 +1543,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       }
     } catch (_) {}
   }, [reservations]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(fleetCars));
+      }
+    } catch (_) {}
+  }, [fleetCars]);
 
   // Firestore リアルタイム購読（タスク・代車予約）
   useEffect(() => {
@@ -2321,20 +2347,16 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
   const makerOptions = useMemo(() => {
     const makers = Object.keys(CAR_MODELS);
     if (!makerQuery.trim()) return makers;
-    const q = makerQuery.trim().toLowerCase();
-    const starts = makers.filter(m => m.toLowerCase().startsWith(q));
-    const includes = makers.filter(m => !starts.includes(m) && m.toLowerCase().includes(q));
-    return [...starts, ...includes];
+    const qNorm = normalizeKana(makerQuery.trim());
+    return makers.filter(m => normalizeKana(m).startsWith(qNorm));
   }, [makerQuery]);
 
   const modelOptions = useMemo(() => {
     if (!formData.maker) return [];
     const models = CAR_MODELS[formData.maker] || [];
     if (!modelQuery.trim()) return models;
-    const q = modelQuery.trim().toLowerCase();
-    const starts = models.filter(m => m.toLowerCase().startsWith(q));
-    const includes = models.filter(m => !starts.includes(m) && m.toLowerCase().includes(q));
-    return [...starts, ...includes];
+    const qNorm = normalizeKana(modelQuery.trim());
+    return models.filter(m => normalizeKana(m).startsWith(qNorm));
   }, [formData.maker, modelQuery, formData.car]);
 
   const handleSubmit = (e) => {
