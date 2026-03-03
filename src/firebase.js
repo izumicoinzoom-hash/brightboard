@@ -5,6 +5,8 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  setPersistence,
+  browserLocalPersistence,
   signInWithPopup,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
@@ -43,6 +45,10 @@ export function getFirebaseAuth() {
   if (!app) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
+    // Chrome（特にスマホ）でのセッション保持を安定させるため localStorage 永続化に変更
+    setPersistence(auth, browserLocalPersistence).catch(() => {
+      // 失敗した場合はデフォルト(session)のまま継続
+    });
     db = getFirestore(app);
   }
   return auth;
@@ -53,6 +59,9 @@ export function getFirestoreDb() {
   if (!app) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
+    if (auth) {
+      setPersistence(auth, browserLocalPersistence).catch(() => {});
+    }
     db = getFirestore(app);
   }
   return db;
