@@ -554,7 +554,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
 
       {isScheduleExpanded && (
       <div className="flex-1 overflow-auto p-4 min-h-0">
-        <div className="min-w-max border border-gray-200 rounded shadow-sm bg-white">
+        <div className="inline-block min-w-max border border-gray-200 rounded shadow-sm bg-white">
           <div className="flex border-b border-gray-200 bg-gray-100 sticky top-0 z-10">
             <div className="w-48 flex-shrink-0 p-3 font-semibold text-gray-700 border-r border-gray-200 bg-gray-100 sticky left-0 z-20">
               車両
@@ -1212,7 +1212,7 @@ function CalendarLinkModal({ onClose }) {
 }
 
 // --- メインアプリ画面 ---
-function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
+function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTaskId = null }) {
   const [currentView, setCurrentView] = useState('board');
   const [currentBoardId, setCurrentBoardId] = useState('main');
   const [tasks, setTasks] = useState(() => {
@@ -1240,7 +1240,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
   const [draggedTaskId, setDraggedTaskId] = useState(null);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [selectedTaskId, setSelectedTaskId] = useState(nfcTaskId || null);
 
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
@@ -1322,6 +1322,17 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
   useOutsideClick(searchMenuRef, () => setIsSearchMenuOpen(false));
   useOutsideClick(accountMenuRef, () => setIsAccountMenuOpen(false));
   const enableWeekGrouping = currentBoardId === 'planning';
+  const isNfcMode = !!nfcTaskId;
+
+  const selectedTask = tasks.find(t => t.id === selectedTaskId) || null;
+
+  // NFCタグ経由で開かれた場合は、対象カードを選択し、全作業ボードを表示
+  useEffect(() => {
+    if (!nfcTaskId) return;
+    setCurrentBoardId('main');
+    setCurrentView('board');
+    setSelectedTaskId(nfcTaskId);
+  }, [nfcTaskId]);
 
   // ローカルキャッシュ（ブラウザ単位）に保存
   useEffect(() => {
@@ -1813,6 +1824,40 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
               <div className={`flex flex-col overflow-hidden transition-all duration-300 ${selectedTaskId ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
                 <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 pt-4 bg-white">
                   <div className="flex gap-2 h-full w-full min-w-0">
+                    {isNfcMode && selectedTask && (
+                      <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
+                          <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
+                            {selectedTask.car} {selectedTask.number} / {selectedTask.assignee}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {boardColumns.map(col => {
+                            const statuses = getColumnStatuses(col);
+                            const primaryStatus = getColumnPrimaryStatus(col);
+                            const isCurrent = statuses.includes(selectedTask.status);
+                            return (
+                              <button
+                                key={col.id}
+                                type="button"
+                                onClick={() => {
+                                  if (!primaryStatus || primaryStatus === selectedTask.status) return;
+                                  handleTaskUpdate({ ...selectedTask, status: primaryStatus });
+                                }}
+                                className={`px-2 py-1 rounded border text-[11px] ${
+                                  isCurrent
+                                    ? 'bg-amber-600 border-amber-700 text-white'
+                                    : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
+                                }`}
+                              >
+                                {col.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {boardColumns.map(col => {
                       const columnStatuses = getColumnStatuses(col);
                       const rawColumnTasks = hideColumnCards(col.id)
@@ -1905,7 +1950,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout }) {
               {selectedTaskId && (
                 <div className="w-[450px] flex-shrink-0 bg-white flex flex-col h-full overflow-hidden shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.1)] z-20">
                   <TaskDetailPanel
-                    task={tasks.find(t => t.id === selectedTaskId)}
+                    task={selectedTask}
                     fleetCars={fleetCars}
                     defaultReceptionStaff={currentUser}
                     staffOptionsConfig={staffOptionsConfig}
@@ -2273,7 +2318,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               </div>
 
               <div className="flex gap-4 items-center">
-                <label className="w-32 text-right text-sm font-medium text-gray-700">板金担当者</label>
+                <label className="w-32 text-right text-sm font-medium text-gray-700">鈑金担当者</label>
                 <div className="flex-1">
                   <select
                     className="w-full max-w-[200px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
@@ -2572,7 +2617,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                </a>
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
-               <span className="text-gray-500">板金担当者:</span>
+               <span className="text-gray-500">鈑金担当者:</span>
                <select
                  value={task.bodyStaff || ''}
                  onChange={(e) => onUpdate({ ...task, bodyStaff: e.target.value })}
@@ -2715,12 +2760,28 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSignInLoading, setIsSignInLoading] = useState(false);
+  const [nfcTaskId, setNfcTaskId] = useState(null);
 
   useEffect(() => {
     const q = window.location.search;
     if (q && q.includes('fromCalendar=1')) {
       try { sessionStorage.setItem(CALENDAR_PENDING_KEY, q); } catch (_) {}
-      window.history.replaceState({}, '', window.location.pathname || '/');
+    }
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const nfcId = params.get('nfcTaskId');
+      if (nfcId) {
+        setNfcTaskId(nfcId);
+        params.delete('nfcTaskId');
+      }
+      const fromCal = params.get('fromCalendar');
+      // fromCalendar はセッションストレージに退避済みなので URL からは消しておく
+      if (fromCal === '1') {
+        params.delete('fromCalendar');
+      }
+      const newSearch = params.toString();
+      const newUrl = (window.location.pathname || '/') + (newSearch ? `?${newSearch}` : '');
+      window.history.replaceState({}, '', newUrl);
     }
   }, []);
 
@@ -2797,5 +2858,5 @@ export default function App() {
       />
     );
   }
-  return <KanbanApp currentUser={currentUser} onLogout={handleLogout} />;
+  return <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />;
 }
