@@ -1684,6 +1684,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       attachments
     };
     setTasks(prev => [...prev, newTask]);
+    if (isFirebaseConfigured()) {
+      upsertDocument('boards/main/tasks', newTask.id, newTask);
+    }
     setCurrentBoardId('planning');
     setCurrentView('board');
     setCalendarToast('入庫カードを作成しました');
@@ -1952,14 +1955,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     <label className="block text-gray-600 mb-1">鈑金担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.bodyStaff} onChange={(e) => setSearchFilters(f => ({ ...f, bodyStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'body').map(n => <option key={n} value={n}>{n}</option>)}
+                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'body').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">塗装担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.paintStaff} onChange={(e) => setSearchFilters(f => ({ ...f, paintStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'paint').map(n => <option key={n} value={n}>{n}</option>)}
+                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'paint').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
@@ -2590,7 +2593,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                     onChange={(e) => setFormData({...formData, bodyStaff: e.target.value})}
                   >
                     <option value="">選択してください</option>
-                    {getStaffOptionsWithCurrentUser(defaultReceptionStaff, staffOptionsConfig || getStaffOptionsConfig(), 'body').map(name => (
+                    {getStaffOptionsWithCurrentUser(defaultReceptionStaff, staffOptionsConfig || getStaffOptionsConfig(), 'body').filter(name => name !== defaultReceptionStaff).map(name => (
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
@@ -2606,7 +2609,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                     onChange={(e) => setFormData({...formData, paintStaff: e.target.value})}
                   >
                     <option value="">選択してください</option>
-                    {getStaffOptionsWithCurrentUser(defaultReceptionStaff, staffOptionsConfig || getStaffOptionsConfig(), 'paint').map(name => (
+                    {getStaffOptionsWithCurrentUser(defaultReceptionStaff, staffOptionsConfig || getStaffOptionsConfig(), 'paint').filter(name => name !== defaultReceptionStaff).map(name => (
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
@@ -2728,8 +2731,8 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
   const dots = task.dots || ['white', 'white', 'white', 'white'];
   const config = staffOptionsConfig || getStaffOptionsConfig();
   const receptionOptions = getStaffOptionsWithCurrentUser(defaultReceptionStaff, config, 'reception');
-  const bodyOptions = getStaffOptionsWithCurrentUser(defaultReceptionStaff, config, 'body');
-  const paintOptions = getStaffOptionsWithCurrentUser(defaultReceptionStaff, config, 'paint');
+  const bodyOptions = getStaffOptionsWithCurrentUser(defaultReceptionStaff, config, 'body').filter(name => name !== defaultReceptionStaff);
+  const paintOptions = getStaffOptionsWithCurrentUser(defaultReceptionStaff, config, 'paint').filter(name => name !== defaultReceptionStaff);
   const loanerFleetCar = task.loanerCarId ? fleetCars.find(f => f.id === task.loanerCarId) : null;
 
   const handleDotColor = (color) => {
@@ -2763,10 +2766,28 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
     <div className="flex h-full text-gray-800 bg-white">
       <div className="flex-1 flex flex-col h-full overflow-hidden border-l border-gray-200 shadow-xl">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white sticky top-0 z-10">
-          <div className="flex items-center text-sm text-gray-500 gap-1 overflow-hidden">
+          <div className="flex items-center text-sm text-gray-500 gap-2 overflow-hidden">
              <div className="w-5 h-5 bg-gradient-to-tr from-cyan-400 to-blue-500 rounded flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold">A</div>
-             <a href="#" className="hover:underline truncate ml-1">株式会社 清田自動車</a>
-             <span>/</span><a href="#" className="hover:underline text-blue-600 font-medium">{issueKey}</a>
+             <span className="truncate">株式会社 清田自動車 / <span className="text-blue-600 font-medium">{issueKey}</span></span>
+             <button
+               type="button"
+               onClick={() => {
+                 const base = typeof window !== 'undefined' ? window.location.origin + (import.meta.env.BASE_URL || '/') : '';
+                 const url = `${base.replace(/\/+$/, '')}/?nfcTaskId=${task.id}`;
+                 if (navigator.clipboard && navigator.clipboard.writeText) {
+                   navigator.clipboard.writeText(url).then(() => {
+                     alert('このカード用のNFC URLをコピーしました。\nNFC書き込みアプリに貼り付けてください。\n\n' + url);
+                   }).catch(() => {
+                     window.prompt('このカード用のNFC URLです。手動でコピーしてください。', url);
+                   });
+                 } else {
+                   window.prompt('このカード用のNFC URLです。手動でコピーしてください。', url);
+                 }
+               }}
+               className="ml-2 px-2 py-1 rounded border border-emerald-500 text-emerald-700 text-xs font-medium hover:bg-emerald-50 flex-shrink-0"
+             >
+               NFCタグ用URLを発行
+             </button>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded"><X className="w-5 h-5" /></button>
         </div>
