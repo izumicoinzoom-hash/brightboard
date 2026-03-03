@@ -1837,13 +1837,31 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       className={`bg-white rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${task.color === 'bg-white' ? '' : task.color} ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
-      {(task.loanerType && task.loanerType !== 'none') && (
-        <div className="flex justify-end items-start mb-1 text-[10px]">
+      <div className="flex justify-between items-start mb-1 text-[10px]">
+        {(task.loanerType && task.loanerType !== 'none') && (
           <div className="flex items-center bg-green-100 text-green-800 px-1 rounded" title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}>
             <Truck className="w-3 h-3 mr-0.5"/> 代
           </div>
+        )}
+        <div className="flex flex-col gap-0.5 ml-1">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); moveTaskWithinStatus(task.id, 'up'); }}
+            className="w-4 h-4 flex items-center justify-center rounded border border-gray-300 bg-white text-[9px] text-gray-500 hover:bg-gray-100"
+            title="上に移動"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); moveTaskWithinStatus(task.id, 'down'); }}
+            className="w-4 h-4 flex items-center justify-center rounded border border-gray-300 bg-white text-[9px] text-gray-500 hover:bg-gray-100"
+            title="下に移動"
+          >
+            ↓
+          </button>
         </div>
-      )}
+      </div>
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
         {task.car} {task.number}<br/>{task.assignee}<br/>
         <span className="text-gray-500 font-normal inline-block mt-0.5">{formatInOutDate(task.inDate, task.outDate)}</span>
@@ -2014,6 +2032,48 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     if (!history.length) return 'delivery_wait';
     const last = history[history.length - 1];
     return last && last.status ? last.status : 'delivery_wait';
+  };
+
+  const moveTaskWithinStatus = (taskId, direction) => {
+    const idxChange = direction === 'up' ? -1 : 1;
+    const getOrder = (t) => (typeof t.order === 'number' ? t.order : null);
+    setTasks((prev) => {
+      const target = prev.find((t) => t.id === taskId);
+      if (!target || !target.status) return prev;
+      const sameStatus = prev
+        .filter((t) => t.status === target.status)
+        .slice()
+        .sort((a, b) => {
+          const oa = getOrder(a);
+          const ob = getOrder(b);
+          if (oa != null && ob != null) return oa - ob;
+          if (oa != null) return -1;
+          if (ob != null) return 1;
+          return 0;
+        });
+      const currentIndex = sameStatus.findIndex((t) => t.id === taskId);
+      if (currentIndex === -1) return prev;
+      const targetIndex = currentIndex + idxChange;
+      if (targetIndex < 0 || targetIndex >= sameStatus.length) return prev;
+      const swapped = sameStatus.slice();
+      const tmp = swapped[currentIndex];
+      swapped[currentIndex] = swapped[targetIndex];
+      swapped[targetIndex] = tmp;
+      swapped.forEach((t, index) => {
+        t.order = index;
+      });
+      const changedIds = new Set(swapped.map((t) => t.id));
+      const next = prev.map((t) => {
+        const updated = swapped.find((s) => s.id === t.id);
+        return updated ? { ...t, order: updated.order } : t;
+      });
+      if (isFirebaseConfigured()) {
+        swapped.forEach((t) => {
+          upsertDocument('boards/main/tasks', t.id, t).catch(() => {});
+        });
+      }
+      return next;
+    });
   };
 
   const transitionTaskStatus = (task, newStatus, extra = {}) => {
@@ -2376,8 +2436,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                           const dt = new Date(d);
                           return Number.isNaN(dt.getTime()) ? null : dt.getTime();
                         };
+                        const getOrder = (t) => (typeof t.order === 'number' ? t.order : null);
                         const hasBlueDot = (task) =>
                           Array.isArray(task.dots) && task.dots.includes('blue');
+
+                        const oa = getOrder(a);
+                        const ob = getOrder(b);
+                        if (oa != null && ob != null) return oa - ob;
+                        if (oa != null) return -1;
+                        if (ob != null) return 1;
 
                         // 納車ボードでは、青ドット優先 → 納車日(outDate)昇順 → 納車日なしを下
                         if (currentBoardId === 'delivery') {
