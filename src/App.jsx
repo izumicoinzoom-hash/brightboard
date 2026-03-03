@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, Layout,
   Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar, MessageCircle
@@ -70,24 +70,184 @@ const readFileAsDataUrl = (file) =>
   });
 
 // --- 車両マスターデータ ---
+// syasyu.md をベースに、カード作成時に選択するメーカー・車種を網羅的に登録
 const CAR_MODELS = {
-  "トヨタ": ["アクア", "アルファード", "ヴェルファイア", "ヴォクシー", "カローラ", "カローラクロス", "カローラツーリング", "クラウン", "シエンタ", "ノア", "ハリアー", "プリウス", "ヤリス", "ヤリスクロス", "ライズ", "ランドクルーザー", "ランドクルーザープラド", "ルーミー", "RAV4", "C-HR", "86", "ハイエース", "プロボックス"],
-  "レクサス": ["CT", "IS", "ES", "LS", "UX", "NX", "RX", "LX", "LC", "RC"],
-  "日産": ["アリア", "エクストレイル", "オーラ", "キックス", "サクラ", "セレナ", "デイズ", "ノート", "マーチ", "リーフ", "ルークス", "GT-R", "フェアレディZ", "キャラバン", "エルグランド"],
-  "ホンダ": ["アコード", "ヴェゼル", "オデッセイ", "シビック", "ステップワゴン", "フィット", "フリード", "N-BOX", "N-ONE", "N-WGN", "N-VAN", "ZR-V", "S660"],
-  "マツダ": ["マツダ2", "マツダ3", "マツダ6", "CX-3", "CX-30", "CX-5", "CX-8", "CX-60", "ロードスター"],
-  "スバル": ["インプレッサ", "クロストレック", "フォレスター", "レガシィ アウトバック", "レヴォーグ", "BRZ", "WRX"],
-  "スズキ": ["アルト", "イグニス", "エブリイ", "クロスビー", "ジムニー", "ジムニーシエラ", "スイフト", "スペーシア", "ソリオ", "ハスラー", "ラパン", "ワゴンR"],
-  "ダイハツ": ["アトレー", "ウェイク", "キャスト", "コペン", "タフト", "タント", "トール", "ハイゼット", "ブーン", "ミライース", "ムーヴ", "ムーヴキャンバス", "ロッキー"],
-  "三菱": ["アウトランダーPHEV", "エクリプスクロス", "デリカD:5", "デリカミニ", "ミラージュ", "eKクロス", "eKワゴン"],
-  "メルセデス・ベンツ": ["Aクラス", "Bクラス", "Cクラス", "Eクラス", "Sクラス", "Gクラス", "GLA", "GLB", "GLC", "GLE", "GLS", "CLA", "Vクラス"],
-  "BMW": ["1シリーズ", "2シリーズ", "3シリーズ", "4シリーズ", "5シリーズ", "7シリーズ", "X1", "X2", "X3", "X4", "X5", "X6", "X7", "Z4", "MINI"],
-  "アウディ": ["A1", "A3", "A4", "A5", "A6", "A7", "A8", "Q2", "Q3", "Q4", "Q5", "Q7", "Q8", "TT"],
-  "フォルクスワーゲン": ["アップ！", "ポロ", "ゴルフ", "パサート", "T-Cross", "T-Roc", "ティグアン", "トゥアレグ", "ビートル"],
-  "ポルシェ": ["911", "718ボクスター", "718ケイマン", "パナメーラ", "マカン", "カイエン", "タイカン"],
-  "ボルボ": ["V40", "V60", "V90", "XC40", "XC60", "XC90"],
-  "プジョー": ["208", "2008", "308", "3008", "508", "5008"],
-  "ジープ": ["レネゲード", "コンパス", "チェロキー", "グランドチェロキー", "ラングラー"],
+  // --- 国産メーカー ---
+  "トヨタ": [
+    "ヤリス", "アクア", "パッソ", "ルーミー", "カローラ", "カローラスポーツ", "カローラツーリング",
+    "クラウン", "センチュリー", "カムリ", "プリウス",
+    "ポルテ", "スペイド",
+    "アルファード", "ヴェルファイア", "ノア", "ヴォクシー", "エスクァイア", "シエンタ", "グランエース", "エスティマ", "ウィッシュ",
+    "ランドクルーザー", "ランドクルーザー70", "ランドクルーザープラド", "ハリアー", "RAV4", "C-HR", "ヤリスクロス", "カローラクロス", "ライズ", "FJクルーザー",
+    "スープラ", "GRヤリス", "GR86", "86", "セリカ", "MR2",
+    "ハイエース", "プロボックス", "サクシード", "タウンエース", "ハイラックス"
+  ],
+  "レクサス": [
+    "LS", "GS", "IS", "ES", "HS",
+    "LX", "RX", "NX", "UX", "GX", "RZ",
+    "LC", "RC", "LFA",
+    "CT", "LM"
+  ],
+  "日産": [
+    "ノート", "オーラ", "マーチ", "キューブ",
+    "セレナ", "エルグランド", "ラフェスタ",
+    "ルークス", "デイズ", "サクラ",
+    "エクストレイル", "キックス", "アリア", "ジューク", "ムラーノ", "デュアリス",
+    "スカイライン", "フーガ", "シーマ", "ティアナ", "シルフィ",
+    "GT-R", "フェアレディZ", "シルビア", "180SX",
+    "キャラバン", "NV200バネット"
+  ],
+  "ホンダ": [
+    "N-BOX", "N-WGN", "N-ONE", "N-VAN", "ビート", "ライフ", "ゼスト",
+    "フィット", "ホンダe",
+    "ステップワゴン", "フリード", "オデッセイ", "エリシオン", "ストリーム",
+    "ヴェゼル", "ZR-V", "CR-V", "WR-V",
+    "シビック", "アコード", "インサイト", "レジェンド",
+    "NSX", "S2000", "インテグラ", "CR-Z"
+  ],
+  "マツダ": [
+    "MAZDA2", "デミオ",
+    "MAZDA3", "アクセラ",
+    "MAZDA6", "アテンザ",
+    "CX-3", "CX-30", "CX-5", "CX-8", "CX-60", "CX-80",
+    "ロードスター", "RX-7", "RX-8",
+    "フレア", "キャロル", "スクラム"
+  ],
+  "スバル": [
+    "インプレッサ", "レガシィB4", "レガシィアウトバック", "レヴォーグ",
+    "フォレスター", "クロストレック", "XV", "レックス", "ソルテラ",
+    "WRX S4", "WRX STI",
+    "BRZ",
+    "ステラ", "プレオ", "サンバー", "シフォン"
+  ],
+  "三菱": [
+    "アウトランダー", "アウトランダーPHEV", "エクリプスクロス", "RVR", "パジェロ",
+    "デリカD:5", "デリカD:2",
+    "eKワゴン", "eKクロス", "デリカミニ", "ミニキャブ",
+    "ランサーエボリューション", "ミラージュ", "アイ・ミーブ"
+  ],
+  "スズキ": [
+    "ワゴンR", "ハスラー", "スペーシア", "アルト", "ラパン", "エブリイ", "ジムニー", "ジムニーシエラ", "キャリイ",
+    "スイフト", "スイフトスポーツ", "ソリオ", "クロスビー", "イグニス", "エスクード"
+  ],
+  "ダイハツ": [
+    "タント", "ムーヴ", "ムーヴキャンバス", "ミラ", "ミライース", "トコット", "タフト", "キャスト", "コペン", "ハイゼット", "アトレー",
+    "ロッキー", "トール", "ブーン"
+  ],
+  "光岡自動車": [
+    "ビュート", "オロチ", "ロックスター", "バディ", "リョーガ", "ガリュー"
+  ],
+
+  // --- ドイツ車 ---
+  "メルセデス・ベンツ": [
+    "Aクラス", "Bクラス", "Cクラス", "Eクラス", "Sクラス",
+    "GLA", "GLB", "GLC", "GLE", "GLS", "Gクラス",
+    "SL", "SLC", "AMG GT", "Vクラス",
+    "EQA", "EQB", "EQC", "EQE", "EQS"
+  ],
+  "BMW": [
+    "1シリーズ", "2シリーズ", "3シリーズ", "4シリーズ", "5シリーズ", "7シリーズ", "8シリーズ",
+    "X1", "X2", "X3", "X4", "X5", "X6", "X7",
+    "M2", "M3", "M4", "M5", "M8",
+    "i3", "i4", "iX", "i7"
+  ],
+  "アウディ": [
+    "A1", "A3", "A4", "A5", "A6", "A7", "A8",
+    "Q2", "Q3", "Q5", "Q7", "Q8",
+    "TT", "R8", "e-tron"
+  ],
+  "フォルクスワーゲン": [
+    "up!", "ポロ", "ゴルフ", "パサート", "ティグアン", "T-Roc", "T-Cross", "アルテオン", "ビートル"
+  ],
+  "ポルシェ": [
+    "911", "718ボクスター", "718ケイマン", "パナメーラ", "マカン", "カイエン", "タイカン"
+  ],
+
+  // --- イギリス ---
+  "ジャガー": [
+    "XE", "XF", "XJ", "F-PACE", "E-PACE", "I-PACE", "F-TYPE"
+  ],
+  "ランドローバー": [
+    "レンジローバー", "レンジローバースポーツ", "レンジローバーイヴォーク",
+    "ディスカバリー", "ディフェンダー"
+  ],
+  "MINI": [
+    "クラシックミニ", "3ドア", "5ドア", "クラブマン", "クロスオーバー"
+  ],
+  "ベントレー": [
+    "コンチネンタルGT", "フライングスパー"
+  ],
+  "ロールス・ロイス": [
+    "ファントム", "ゴースト", "カリナン"
+  ],
+  "アストンマーティン": [
+    "DB11", "ヴァンテージ", "DBX"
+  ],
+
+  // --- イタリア・フランス・スウェーデン ---
+  "フィアット": [
+    "500", "パンダ"
+  ],
+  "アバルト": [
+    "595"
+  ],
+  "アルファロメオ": [
+    "ジュリア", "ステルヴィオ", "トナーレ", "ミト", "ジュリエッタ"
+  ],
+  "マセラティ": [
+    "ギブリ", "レヴァンテ"
+  ],
+  "フェラーリ": [
+    "ローマ", "296", "SF90"
+  ],
+  "ランボルギーニ": [
+    "ウラカン", "ウルス"
+  ],
+  "プジョー": [
+    "208", "308", "508", "2008", "3008", "5008"
+  ],
+  "ルノー": [
+    "ルーテシア", "メガーヌ", "カングー", "トゥインゴ", "キャプチャー"
+  ],
+  "シトロエン": [
+    "C3", "C4", "C5エアクロス", "ベルランゴ"
+  ],
+  "DS": [
+    "DS3", "DS7"
+  ],
+  "ボルボ": [
+    "XC40", "XC60", "XC90", "V60", "V90", "S60"
+  ],
+
+  // --- アメリカ ---
+  "シボレー": [
+    "コルベット", "カマロ", "タホ", "サバーバン", "シルバラード", "アストロ"
+  ],
+  "キャデラック": [
+    "エスカレード", "CT5", "XT5"
+  ],
+  "フォード": [
+    "マスタング", "エクスプローラー", "ブロンコ", "F-150"
+  ],
+  "ジープ": [
+    "ラングラー", "チェロキー", "グランドチェロキー", "レネゲード", "コンパス"
+  ],
+  "ダッジ": [
+    "チャレンジャー", "チャージャー", "デュランゴ"
+  ],
+  "テスラ": [
+    "モデルS", "モデル3", "モデルX", "モデルY"
+  ],
+
+  // --- 韓国・中国 ---
+  "ヒョンデ": [
+    "アイオニック5", "ネッソ", "コナ"
+  ],
+  "BYD": [
+    "ATTO 3", "ドルフィン", "シール"
+  ],
+
+  // その他
   "その他": ["その他車種（手入力）"]
 };
 
@@ -1585,16 +1745,19 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
       newInDate = `${y}-${m}-${day}`;
     }
-    setTasks(prev =>
-      prev.map(t => {
-        if (t.id !== draggedTaskId) return t;
-        // ステータスが変わる場合のみ履歴を追加
-        const base = status && status !== t.status
-          ? transitionTaskStatus(t, status)
-          : { ...t };
-        return newInDate ? { ...base, inDate: newInDate } : base;
-      })
-    );
+    const currentTask = tasks.find(t => t.id === draggedTaskId);
+    if (!currentTask) {
+      setDraggedTaskId(null);
+      return;
+    }
+    const base = status && status !== currentTask.status
+      ? transitionTaskStatus(currentTask, status)
+      : { ...currentTask };
+    const updatedTask = newInDate ? { ...base, inDate: newInDate } : base;
+    setTasks(prev => prev.map(t => (t.id === draggedTaskId ? updatedTask : t)));
+    if (isFirebaseConfigured()) {
+      upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
+    }
     setDraggedTaskId(null);
   };
 
@@ -2152,6 +2315,27 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
   });
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [attachments, setAttachments] = useState([]);
+  const [makerQuery, setMakerQuery] = useState('');
+  const [modelQuery, setModelQuery] = useState('');
+
+  const makerOptions = useMemo(() => {
+    const makers = Object.keys(CAR_MODELS);
+    if (!makerQuery.trim()) return makers;
+    const q = makerQuery.trim().toLowerCase();
+    const starts = makers.filter(m => m.toLowerCase().startsWith(q));
+    const includes = makers.filter(m => !starts.includes(m) && m.toLowerCase().includes(q));
+    return [...starts, ...includes];
+  }, [makerQuery]);
+
+  const modelOptions = useMemo(() => {
+    if (!formData.maker) return [];
+    const models = CAR_MODELS[formData.maker] || [];
+    if (!modelQuery.trim()) return models;
+    const q = modelQuery.trim().toLowerCase();
+    const starts = models.filter(m => m.toLowerCase().startsWith(q));
+    const includes = models.filter(m => !starts.includes(m) && m.toLowerCase().includes(q));
+    return [...starts, ...includes];
+  }, [formData.maker, modelQuery, formData.car]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -2278,18 +2462,61 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
 
               <div className="flex gap-4 items-start">
                 <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">メーカー <span className="text-red-500">*</span></label>
-                <select className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm bg-white" value={formData.maker} onChange={(e) => setFormData({...formData, maker: e.target.value, car: ''})} required>
-                  <option value="" disabled>選択してください</option>
-                  {Object.keys(CAR_MODELS).map(maker => <option key={maker} value={maker}>{maker}</option>)}
-                </select>
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                    placeholder="メーカー名で絞り込み（例: トヨタ）"
+                    value={makerQuery}
+                    onChange={(e) => setMakerQuery(e.target.value)}
+                  />
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
+                    value={formData.maker}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData({ ...formData, maker: value, car: '' });
+                      setMakerQuery(value);
+                      setModelQuery('');
+                    }}
+                    required
+                  >
+                    <option value="" disabled>選択してください</option>
+                    {makerOptions.map(maker => (
+                      <option key={maker} value={maker}>{maker}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="flex gap-4 items-start">
                 <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">モデル <span className="text-red-500">*</span></label>
-                <select className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm bg-white disabled:bg-gray-100" value={formData.car} onChange={(e) => setFormData({...formData, car: e.target.value})} disabled={!formData.maker} required>
-                  <option value="" disabled>{formData.maker ? '選択してください' : 'メーカーを先に選択'}</option>
-                  {formData.maker && CAR_MODELS[formData.maker].map(model => <option key={model} value={model}>{model}</option>)}
-                </select>
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm disabled:bg-gray-100"
+                    placeholder={formData.maker ? "車種名で絞り込み（例: プリウス）" : "先にメーカーを選択してください"}
+                    value={modelQuery}
+                    onChange={(e) => setModelQuery(e.target.value)}
+                    disabled={!formData.maker}
+                  />
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm bg-white disabled:bg-gray-100"
+                    value={formData.car}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData({ ...formData, car: value });
+                      setModelQuery(value);
+                    }}
+                    disabled={!formData.maker}
+                    required
+                  >
+                    <option value="" disabled>{formData.maker ? '選択してください' : 'メーカーを先に選択'}</option>
+                    {formData.maker && modelOptions.map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="flex gap-4 items-center">
