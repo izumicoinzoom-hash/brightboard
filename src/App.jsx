@@ -616,7 +616,8 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
     const car = { id, name: newCarName.trim(), type: newCarType, status: 'active', inspectionExpiry: '' };
     setFleetCars(prev => [...prev, car]);
     try {
-      await upsertDocument('fleet/cars', id, car);
+      // Firestore 上のコレクションは 'fleetCars' に統一する（collection パスはスラッシュを含まない必要がある）
+      await upsertDocument('fleetCars', id, car);
     } catch (_) {}
     setNewCarName('');
   };
@@ -1010,7 +1011,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
     setFleetCars(prev => [...prev, car]);
     // Firestore 反映（失敗してもローカルはそのまま）
     try {
-      await upsertDocument('fleet/cars', id, car);
+      await upsertDocument('fleetCars', id, car);
     } catch (_) {}
     setNewCarName('');
   };
@@ -1024,7 +1025,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
       if (setTasks) setTasks(prev => prev.map(t => t.loanerCarId === car.id ? { ...t, loanerCarId: '', loanerType: 'none' } : t));
     }
     try {
-      await deleteDocument('fleet/cars', car.id);
+      await deleteDocument('fleetCars', car.id);
     } catch (_) {}
   };
 
@@ -1033,7 +1034,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
     try {
       const target = fleetCars.find(c => c.id === carId);
       if (target) {
-        await upsertDocument('fleet/cars', carId, { ...target, status });
+        await upsertDocument('fleetCars', carId, { ...target, status });
       }
     } catch (_) {}
   };
@@ -1043,7 +1044,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
     try {
       const target = fleetCars.find(c => c.id === carId);
       if (target) {
-        await upsertDocument('fleet/cars', carId, { ...target, inspectionExpiry: value });
+        await upsertDocument('fleetCars', carId, { ...target, inspectionExpiry: value });
       }
     } catch (_) {}
   };
@@ -1634,7 +1635,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         setReservations(items);
       }
     });
-    const unsubscribeFleet = subscribeCollection('fleet/cars', (items) => {
+    const unsubscribeFleet = subscribeCollection('fleetCars', (items) => {
       if (Array.isArray(items) && items.length > 0) {
         setFleetCars(items);
         try {
