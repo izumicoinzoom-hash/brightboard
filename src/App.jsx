@@ -1877,7 +1877,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       onDrop={(e) => handleCardDrop(e, task.id)}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
-      className={`bg-white rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${task.color === 'bg-white' ? '' : task.color} ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
+      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
       {(task.loanerType && task.loanerType !== 'none') && (
