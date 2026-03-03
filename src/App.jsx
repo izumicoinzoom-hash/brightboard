@@ -2164,7 +2164,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   };
 
   const handleCreateTask = (newTask) => {
-    const firstCol = getColumnsForBoard(boardColumnsConfig, currentBoardId)[0];
+    const targetBoardId = currentView === 'gantt' ? 'planning' : currentBoardId;
+    const firstCol = getColumnsForBoard(boardColumnsConfig, targetBoardId)[0];
     const firstColStatus = firstCol ? getColumnPrimaryStatus(firstCol) : 'received';
     const newId = `t${Date.now()}`;
     const nowIso = new Date().toISOString();
@@ -2197,6 +2198,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       }
     }
     setIsCreateModalOpen(false);
+    setCurrentBoardId(targetBoardId);
     setCurrentView('board');
     // Googleスプレッドシートへ同期（VITE_SHEET_SYNC_URL が設定されている場合のみ）
     syncCardToSheet(taskWithId);
