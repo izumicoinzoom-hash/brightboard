@@ -274,7 +274,8 @@ const CAR_MODELS = {
 };
 
 // --- 担当者マスター ---
-const RECEPTION_STAFF_OPTIONS = ['ログインユーザー']; // 受付担当者（ログインアカウントを先頭に表示する想定）
+// 受付担当者はログインユーザーに固定せず、任意の一覧から選択する
+const RECEPTION_STAFF_OPTIONS = [];
 const BODY_STAFF_OPTIONS = ['木下', '竹馬', 'チャス', 'アビアン'];   // 板金担当者
 const PAINT_STAFF_OPTIONS = ['野中', '小田', '佐藤', 'アグン', 'リズキ'];    // 塗装担当者
 
@@ -427,7 +428,9 @@ function getStaffOptionsConfig() {
 
 function getStaffOptionsWithCurrentUser(currentUser, config, type) {
   const list = (config[type] || []);
-  return [...new Set([currentUser || 'ログインユーザー', ...list])].filter(Boolean);
+  const base = Array.isArray(list) ? list : [];
+  const withCurrent = currentUser ? [currentUser, ...base] : base;
+  return [...new Set(withCurrent)].filter(Boolean);
 }
 
 const DEFAULT_COLUMN_WIDTH = { desktop: 220, tablet: 180, mobile: 150 };
@@ -1667,6 +1670,32 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         localStorage.setItem(STAFF_OPTIONS_KEY, JSON.stringify(staffOptionsConfig));
     } catch (_) {}
   }, [staffOptionsConfig]);
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    const unsubscribe = subscribeCollection('meta', (items) => {
+      const doc = items.find((it) => it.id === 'staffOptions');
+      if (!doc) return;
+      const next = {
+        reception: Array.isArray(doc.reception) ? doc.reception.filter((s) => typeof s === 'string') : [],
+        body: Array.isArray(doc.body) ? doc.body.filter((s) => typeof s === 'string') : [],
+        paint: Array.isArray(doc.paint) ? doc.paint.filter((s) => typeof s === 'string') : [],
+      };
+      setStaffOptionsConfig((prev) => {
+        try {
+          if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    });
+    return () => unsubscribe && unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    if (!staffOptionsConfig) return;
+    upsertDocument('meta', 'staffOptions', staffOptionsConfig).catch(() => {});
+  }, [staffOptionsConfig]);
   const [searchFilters, setSearchFilters] = useState({
     assignee: '', maker: '', car: '', receptionStaff: '', bodyStaff: '', paintStaff: '', number: '', color: ''
   });
@@ -1957,7 +1986,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       && (!searchFilters.color || (task.color || 'bg-white') === searchFilters.color);
   };
   const filteredTasks = tasks.filter(matchesSearch);
-  const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400'];
+  const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray-100', 'bg-red-100'];
   const hasActiveFilters = Object.values(searchFilters).some(v => v && v.trim() !== '');
 
   // 納車ボード: 支払い済み列は表示しない。完了に置いたカードは看板に表示しない（データは残す）
@@ -2567,7 +2596,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   <div className="space-y-4">
                     <section>
                       <h3 className="text-sm font-semibold text-gray-700 mb-2">担当者一覧の編集</h3>
-                      <p className="text-sm text-gray-500 mb-3">受付担当者・鈑金担当者・塗装担当者のプルダウンに表示する項目を追加・削除できます。ログイン中のアカウントは常に先頭に表示されます。</p>
+                      <p className="text-sm text-gray-500 mb-3">受付担当者・鈑金担当者・塗装担当者のプルダウンに表示する項目を追加・削除できます。</p>
                       <button type="button" onClick={() => setIsStaffOptionsOpen(true)} className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center justify-center gap-2">
                         <Settings className="w-4 h-4" />
                         担当者一覧を編集
@@ -2951,7 +2980,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                     className="w-full max-w-[200px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
                     value={formData.receptionStaff}
                     onChange={(e) => setFormData({...formData, receptionStaff: e.target.value})}
-                    title="ログインアカウントが初期値。必要に応じて変更可能"
+                    title="受付担当者を選択してください"
                   >
                     {getStaffOptionsWithCurrentUser(defaultReceptionStaff, staffOptionsConfig || getStaffOptionsConfig(), 'reception').map(name => (
                       <option key={name} value={name}>{name}</option>
@@ -3055,8 +3084,13 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-center">
                 <label className="w-32 text-right text-sm font-medium text-gray-700">カードの色</label>
                 <div className="flex gap-1 flex-wrap flex-1">
-                  {['bg-white', 'bg-cyan-300', 'bg-yellow-400'].map(colorClass => (
-                    <button type="button" key={colorClass} onClick={() => setFormData({...formData, color: colorClass})} className={`w-6 h-6 rounded border ${colorClass} ${formData.color === colorClass ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`}></button>
+                  {CARD_COLOR_OPTIONS.map(colorClass => (
+                    <button
+                      type="button"
+                      key={colorClass}
+                      onClick={() => setFormData({...formData, color: colorClass})}
+                      className={`w-6 h-6 rounded border ${colorClass} ${formData.color === colorClass ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`}
+                    />
                   ))}
                 </div>
               </div>
@@ -3452,7 +3486,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
 
           <Accordion title="カードの色" defaultOpen={true}>
             <div className="flex gap-1 flex-wrap">
-              {['bg-white', 'bg-cyan-300', 'bg-yellow-400'].map(colorClass => (
+              {CARD_COLOR_OPTIONS.map(colorClass => (
                 <button
                   type="button"
                   key={colorClass}
