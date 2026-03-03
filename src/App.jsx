@@ -288,12 +288,36 @@ const LOANER_OPTIONS = [
 
 // ガントチャート用 フリートデータ（社用車・レンタカー）
 const FLEET_CARS = [
+  // 既存
   { id: 'f1', name: 'N-BOX (熊本580あ1234)', type: '軽自動車', status: 'active', inspectionExpiry: '' },
   { id: 'f2', name: 'ミライース (熊本580い5678)', type: '軽自動車', status: 'active', inspectionExpiry: '' },
   { id: 'f3', name: 'アクア (熊本500う9012)', type: '普通車', status: 'active', inspectionExpiry: '' },
   { id: 'f4', name: 'ノート (熊本500え3456)', type: '普通車', status: 'maintenance', inspectionExpiry: '' },
   { id: 'r1', name: 'レンタカー枠 A', type: 'レンタカー', status: 'active', inspectionExpiry: '' },
   { id: 'r2', name: 'レンタカー枠 B', type: 'レンタカー', status: 'active', inspectionExpiry: '' },
+
+  // 追加：代車マスター（車検満了日は一旦空）
+  { id: 'k1', name: 'ワゴンR 9092', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k2', name: 'eKワゴン 5174', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k3', name: 'ミライース 1152 ブルー', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k4', name: 'ミライース 3421', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k5', name: 'N BOX 401', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k6', name: 'ピクシスエポック 2533', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k7', name: 'デミオ 6724 ブルー', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k8', name: 'ワゴンR 8257', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k9', name: 'スイフト 2826 ブラック', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k10', name: 'スイフト 9554 ホワイト', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k11', name: 'ライトエース 1637', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k12', name: 'パッソ 357 レッド', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k13', name: 'パッソ 8355 レッド', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k14', name: 'プリウス 8510 ブラック', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k15', name: 'シエンタ 1815', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k16', name: 'ヴィッツ 4214 ホワイト', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k17', name: 'ヴィッツ 7641 シルバー', type: '普通車', status: 'active', inspectionExpiry: '' },
+  { id: 'k18', name: 'キャリィ 3539 ホワイト', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k19', name: 'ミライース 6082', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k20', name: 'アルト 6084', type: '軽自動車', status: 'active', inspectionExpiry: '' },
+  { id: 'k21', name: 'ノア 2883 ゴールド', type: '普通車', status: 'active', inspectionExpiry: '' },
 ];
 
 // 車検満了日の3日前からは代車候補から除外する判定
