@@ -2691,7 +2691,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                         </div>
                       </div>
                     )}
-                    {boardColumns.map(col => {
+                    {!isNfcMode && boardColumns.map(col => {
                       const columnStatuses = getColumnStatuses(col);
                       const rawColumnTasks = hideColumnCards(col.id)
                         ? []
