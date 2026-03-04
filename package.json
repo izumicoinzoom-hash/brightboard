@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:demo": "vite build --mode demo",
+    "build:demo": "vite build --mode demo && node -e \"require('fs').copyFileSync('public/.htaccess.demo','dist/.htaccess')\"",
     "preview": "vite preview"
   },
   "dependencies": {

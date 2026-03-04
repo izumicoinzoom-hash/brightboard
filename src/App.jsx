@@ -419,6 +419,7 @@ const BOARDS = {
 
 const LINK_CONFIG_KEY = 'brightboard_column_statuses';
 const CALENDAR_PENDING_KEY = 'brightboard_calendar_pending';
+const NFC_PENDING_KEY = 'brightboard_nfc_task_id';
 const COLUMN_WIDTH_KEY = 'brightboard_column_width';
 const BOARD_COLUMNS_KEY = 'brightboard_board_columns';
 const STAFF_OPTIONS_KEY = 'brightboard_staff_options';
@@ -1389,6 +1390,7 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, 
     paint: Array.isArray(staffOptionsConfig?.paint) ? [...staffOptionsConfig.paint] : [],
   }));
   const [newName, setNewName] = useState({ reception: '', body: '', paint: '' });
+  const [saveMessage, setSaveMessage] = useState('');
 
   useEffect(() => {
     setLocalConfig({
@@ -1420,10 +1422,23 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, 
 
   return (
     <>
+      {saveMessage && (
+        <div className="mb-3 px-3 py-2 rounded bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+          {saveMessage}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <button type="button" onClick={onBack} className="text-sm text-blue-600 hover:underline">← 設定に戻る</button>
         {onSave && (
-          <button type="button" onClick={() => onSave(localConfig)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium">
+          <button
+            type="button"
+            onClick={() => {
+              onSave(localConfig);
+              setSaveMessage('担当者マスタを保存しました。');
+              setTimeout(() => setSaveMessage(''), 3000);
+            }}
+            className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium"
+          >
             保存
           </button>
         )}
@@ -1618,6 +1633,194 @@ function CalendarLinkModal({ onClose }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
+function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout }) {
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [boardColumnsConfig] = useState(() => getBoardColumnsConfig());
+  const [columnStatuses] = useState(() => buildInitialColumnStatuses());
+
+  const nfcTaskId =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('nfcTaskId')
+      : null;
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setError('Firebaseの設定がありません。.env に VITE_FIREBASE_* を設定してください。');
+      setIsLoading(false);
+      return;
+    }
+    const unsubscribe = subscribeCollection('boards/main/tasks', (items) => {
+      setTasks(Array.isArray(items) ? items : []);
+      setIsLoading(false);
+    });
+    return () => unsubscribe && unsubscribe();
+  }, []);
+
+  const boardColumns = useMemo(
+    () => getColumnsForBoard(boardColumnsConfig, 'main'),
+    [boardColumnsConfig]
+  );
+
+  const getColumnStatusesForMain = (col) => {
+    if (!col || !col.id) return [];
+    const custom = columnStatuses?.main?.[col.id];
+    const list =
+      Array.isArray(custom) && custom.length
+        ? custom
+        : Array.isArray(col.statuses)
+        ? col.statuses
+        : [col.id];
+    return Array.isArray(list) ? list : [col.id];
+  };
+
+  const getPrimaryStatusForMain = (col) => {
+    const list = getColumnStatusesForMain(col);
+    return list && list[0] ? list[0] : col.id;
+  };
+
+  const task = tasks.find((t) => t.id === nfcTaskId) || null;
+  const currentColumn = task
+    ? boardColumns.find((col) => getColumnStatusesForMain(col).includes(task.status))
+    : null;
+
+  const [nextColumnId, setNextColumnId] = useState('');
+
+  useEffect(() => {
+    // 初期表示時に「現在と異なる最初の列」をデフォルト選択にする
+    if (!task || !boardColumns.length) return;
+    const firstDifferent = boardColumns.find((col) => {
+      const primary = getPrimaryStatusForMain(col);
+      return primary && primary !== task.status;
+    });
+    if (firstDifferent) setNextColumnId(firstDifferent.id);
+  }, [task, boardColumns]);
+
+  const handleMove = async () => {
+    if (!task) return;
+    const col = boardColumns.find((c) => c.id === nextColumnId);
+    if (!col) return;
+    const primaryStatus = getPrimaryStatusForMain(col);
+    if (!primaryStatus || primaryStatus === task.status) return;
+
+    setIsSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const updated = transitionTaskStatus(task, primaryStatus);
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      if (isFirebaseConfigured()) {
+        await upsertDocument('boards/main/tasks', updated.id, updated);
+      }
+      setSuccess('列を移動しました。');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError(e && e.message ? e.message : '列の移動に失敗しました。');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const baseClasses =
+    'min-h-screen bg-gray-100 flex flex-col items-stretch justify-start font-sans text-gray-800';
+
+  return (
+    <div className={baseClasses}>
+      <header className="bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white" />
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-gray-500">BrightBoard - 清田自動車</span>
+            <span className="text-sm font-bold text-gray-800">NFC 列移動モード</span>
+          </div>
+        </div>
+        {typeof onLogout === 'function' && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+          >
+            ログアウト
+          </button>
+        )}
+      </header>
+
+      <main className="flex-1 flex items-center justify-center px-3 py-4">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-4 space-y-3">
+          {isLoading && <div className="text-sm text-gray-600">読み込み中です...</div>}
+          {!isLoading && !task && (
+            <div className="text-sm text-red-600">
+              このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
+            </div>
+          )}
+          {!isLoading && task && (
+            <>
+              {error && (
+                <div className="px-3 py-2 rounded bg-red-50 border border-red-200 text-xs text-red-700">
+                  {error}
+                </div>
+              )}
+              {success && (
+                <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                  {success}
+                </div>
+              )}
+              <div className="text-xs text-gray-500 mb-1">対象カード</div>
+              <div className="px-3 py-2 rounded bg-gray-50 border border-gray-200 text-sm">
+                <div className="font-semibold text-gray-800 mb-1">
+                  {task.assignee || '担当未設定'} / {task.car || '車種未設定'} {task.number || ''}
+                </div>
+                <div className="text-xs text-gray-600">
+                  受付担当: {task.receptionStaff || currentUser || '未設定'}
+                </div>
+              </div>
+
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 text-xs">現在の列</span>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[11px] text-blue-700">
+                    {currentColumn
+                      ? currentColumn.name
+                      : task.status || '不明'}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-600 mb-1">移動先の列</label>
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
+                    value={nextColumnId}
+                    onChange={(e) => setNextColumnId(e.target.value)}
+                  >
+                    <option value="">列を選択してください</option>
+                    {boardColumns.map((col) => (
+                      <option key={col.id} value={col.id}>
+                        {col.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleMove}
+                disabled={isSaving || !nextColumnId}
+                className="w-full mt-3 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSaving ? '列を移動中...' : 'この列に移動する'}
+              </button>
+            </>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
@@ -2592,7 +2795,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden relative z-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative z-0">
         <div className="w-12 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-6 z-10 shadow-sm flex-shrink-0">
           <div className="relative flex flex-col items-center" ref={accountMenuRef}>
             <button
@@ -2627,16 +2830,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
           <Settings onClick={() => setIsSettingsOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer mt-auto" title="設定" />
         </div>
 
-        <div className="flex-1 flex overflow-hidden bg-white">
+        <div className="flex-1 flex overflow-hidden bg-white min-h-0">
           {currentView === 'gantt' ? (
             <LoanerGanttChart fleetCars={fleetCars} setFleetCars={setFleetCars} reservations={reservations} setReservations={setReservations} onReservationUpdate={handleReservationUpdate} setTasks={setTasks} />
           ) : (
             <>
-              <div className={`flex flex-col overflow-hidden transition-all duration-300 ${selectedTaskId ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
-                <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 pt-4 bg-white">
+              <div className={`flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${selectedTaskId && !isNfcMode ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
+                <div className="flex-1 min-h-0 p-4 pt-4 bg-white overflow-x-auto overflow-y-auto">
                   <div className="flex gap-2 h-full w-full min-w-0">
                     {isNfcMode && (
-                      <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
+                      <div className="mb-3 w-full min-w-0 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
                         {selectedTask ? (
                           <>
                             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2696,7 +2899,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                         )}
                       </div>
                     )}
-                    {!isNfcMode && boardColumns.map(col => {
+                    {boardColumns.map(col => {
                       const columnStatuses = getColumnStatuses(col);
                       const rawColumnTasks = hideColumnCards(col.id)
                         ? []
@@ -3566,12 +3769,12 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white sticky top-0 z-10">
           <div className="flex items-center text-sm text-gray-500 gap-2 overflow-hidden">
              <div className="w-5 h-5 bg-gradient-to-tr from-cyan-400 to-blue-500 rounded flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold">A</div>
-             <span className="truncate">株式会社 清田自動車 / <span className="text-blue-600 font-medium">{issueKey}</span></span>
+            <span className="truncate">株式会社 清田自動車 / <span className="text-blue-600 font-medium">{issueKey}</span></span>
              <button
                type="button"
                onClick={() => {
                  const base = typeof window !== 'undefined' ? window.location.origin + (import.meta.env.BASE_URL || '/') : '';
-                 const url = `${base.replace(/\/+$/, '')}/?nfcTaskId=${task.id}`;
+                 const url = `${base.replace(/\/+$/, '')}/?nfcStandalone=1&nfcTaskId=${task.id}`;
                  if (navigator.clipboard && navigator.clipboard.writeText) {
                    navigator.clipboard.writeText(url).then(() => {
                      alert('このカード用のNFC URLをコピーしました。\nNFC書き込みアプリに貼り付けてください。\n\n' + url);
@@ -3932,6 +4135,15 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSignInLoading, setIsSignInLoading] = useState(false);
   const [nfcTaskId, setNfcTaskId] = useState(null);
+  const isNfcStandalone =
+    typeof window !== 'undefined' &&
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const flag = params.get('nfcStandalone') === '1';
+      const hasNfcId = !!params.get('nfcTaskId');
+      const isNarrow = window.innerWidth < 768; // スマホ幅ならスタンドアロン優先
+      return flag || (hasNfcId && isNarrow);
+    })();
 
   useEffect(() => {
     const q = window.location.search;
@@ -3940,9 +4152,17 @@ export default function App() {
     }
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const nfcId = params.get('nfcTaskId');
+      let nfcId = params.get('nfcTaskId');
+      // スマホでログインリダイレクト後に戻るとURLからnfcTaskIdが消えるため、sessionStorageから復元
+      if (!nfcId) {
+        try {
+          nfcId = sessionStorage.getItem(NFC_PENDING_KEY);
+          if (nfcId) sessionStorage.removeItem(NFC_PENDING_KEY);
+        } catch (_) {}
+      }
       if (nfcId) {
         setNfcTaskId(nfcId);
+        try { sessionStorage.setItem(NFC_PENDING_KEY, nfcId); } catch (_) {}
         params.delete('nfcTaskId');
       }
       const fromCal = params.get('fromCalendar');
@@ -4059,7 +4279,11 @@ export default function App() {
         </div>
       )}
       <div style={isDemoMode ? { paddingTop: 'calc(2.5rem + env(safe-area-inset-top))' } : undefined}>
-        <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
+        {isNfcStandalone ? (
+          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} />
+        ) : (
+          <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
+        )}
       </div>
     </>
   );

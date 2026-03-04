@@ -13,7 +13,27 @@
         <p>BrightBoard を利用するには JavaScript を有効にしてください。</p>
       </div>
     </noscript>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-loading" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f9fafb;color:#374151;box-sizing:border-box;">
+        <p style="margin:0 0 12px 0;font-size:14px;">読み込み中...</p>
+        <div style="width:28px;height:28px;border:2px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:bb-spin 0.7s linear infinite;"></div>
+      </div>
+    </div>
+    <style>@keyframes bb-spin{to{transform:rotate(360deg);}}</style>
+    <script>
+      (function(){
+        var el = document.getElementById('app-loading');
+        function showErr(msg) {
+          if (!el) return;
+          el.innerHTML = '<p style="margin:0 0 12px 0;font-size:14px;color:#dc2626;">' + (msg || '読み込みに失敗しました') + '</p><button type="button" onclick="location.reload()" style="padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;">再読み込み</button>';
+        }
+        window.addEventListener('error', function(e) {
+          if (e.message) showErr(e.message);
+          else if (e.filename && e.filename.indexOf('assets/') !== -1) showErr('スクリプトの読み込みに失敗しました。ネットワークを確認してください。');
+        });
+        window.addEventListener('unhandledrejection', function(e) { showErr(e.reason && (e.reason.message || String(e.reason))); });
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
