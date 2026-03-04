@@ -2847,7 +2847,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                 </div>
               )}
 
-              {selectedTaskId && (
+              {selectedTaskId && !isNfcMode && (
                 <div className="w-[450px] flex-shrink-0 bg-white flex flex-col h-full overflow-hidden shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.1)] z-20">
                   <TaskDetailPanel
                     task={selectedTask}
