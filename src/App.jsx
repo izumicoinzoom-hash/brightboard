@@ -926,7 +926,19 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
 }
 
 // --- リンク設定パネル（ドラッグ＆ドロップで列同士をリンク）---
-function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
+function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack, onSave }) {
+  const [localStatuses, setLocalStatuses] = useState(() => {
+    const base = buildInitialColumnStatuses();
+    if (columnStatuses && typeof columnStatuses === 'object')
+      Object.keys(columnStatuses).forEach(bid => {
+        if (base[bid] && columnStatuses[bid] && typeof columnStatuses[bid] === 'object')
+          Object.keys(columnStatuses[bid]).forEach(cid => {
+            const arr = columnStatuses[bid][cid];
+            if (Array.isArray(arr) && arr.length > 0) base[bid][cid] = arr;
+          });
+      });
+    return base;
+  });
   const [draggedLink, setDraggedLink] = useState(null);
   const [expandedBoards, setExpandedBoards] = useState(() => {
     const initial = {};
@@ -936,8 +948,21 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
     return initial;
   });
 
+  useEffect(() => {
+    const base = buildInitialColumnStatuses();
+    if (columnStatuses && typeof columnStatuses === 'object')
+      Object.keys(columnStatuses).forEach(bid => {
+        if (base[bid] && columnStatuses[bid] && typeof columnStatuses[bid] === 'object')
+          Object.keys(columnStatuses[bid]).forEach(cid => {
+            const arr = columnStatuses[bid][cid];
+            if (Array.isArray(arr) && arr.length > 0) base[bid][cid] = arr;
+          });
+      });
+    setLocalStatuses(base);
+  }, [columnStatuses]);
+
   const getStatuses = (boardId, colId) => {
-    const list = columnStatuses?.[boardId]?.[colId];
+    const list = localStatuses?.[boardId]?.[colId];
     if (Array.isArray(list) && list.length) return list;
     const col = BOARDS[boardId]?.columns?.find(c => c.id === colId);
     const def = Array.isArray(col?.statuses) ? col.statuses : [colId];
@@ -947,7 +972,7 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
   const getPrimary = (boardId, colId) => getStatuses(boardId, colId)[0] || colId;
 
   const addLink = (targetBoardId, targetColId, statusToAdd) => {
-    setColumnStatuses(prev => {
+    setLocalStatuses(prev => {
       const board = prev[targetBoardId] || {};
       const fallback = BOARDS[targetBoardId]?.columns?.find(c => c.id === targetColId)?.statuses ?? [targetColId];
       const list = board[targetColId] && board[targetColId].length ? board[targetColId] : fallback;
@@ -957,7 +982,7 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
   };
 
   const removeLink = (boardId, colId, statusToRemove) => {
-    setColumnStatuses(prev => {
+    setLocalStatuses(prev => {
       const board = prev[boardId] || {};
       const base = board[colId];
       const fallback = BOARDS[boardId]?.columns?.find(c => c.id === colId)?.statuses ?? [colId];
@@ -996,13 +1021,20 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
 
   const boardLabels = { planning: '入庫', main: '全作業', body: '鈑金', paint: '塗装', delivery: '納車' };
 
-  const resetToDefault = () => { if (window.confirm('リンクを初期状態に戻しますか？')) setColumnStatuses(buildInitialColumnStatuses()); };
+  const resetToDefault = () => { if (window.confirm('リンクを初期状態に戻しますか？')) setLocalStatuses(buildInitialColumnStatuses()); };
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <button type="button" onClick={onBack} className="text-sm text-blue-600 hover:underline">← 設定に戻る</button>
-        <button type="button" onClick={resetToDefault} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">デフォルトに戻す</button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={resetToDefault} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">デフォルトに戻す</button>
+          {onSave && (
+            <button type="button" onClick={() => onSave(localStatuses)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium">
+              保存
+            </button>
+          )}
+        </div>
       </div>
       <p className="text-sm text-gray-600 mb-4">
         列をドラッグして別の列にドロップすると、ドロップ先の列にその status がリンクされ、同じカードが両方に表示されます。
@@ -1065,56 +1097,38 @@ function LinkConfigPanel({ columnStatuses, setColumnStatuses, onBack }) {
 }
 
 // --- 代車マスタ設定パネル ---
-function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservations, setTasks, onBack }) {
+function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservations, setTasks, onBack, onSaveFleet }) {
+  const [fleetCarsLocal, setFleetCarsLocal] = useState(() => Array.isArray(fleetCars) ? fleetCars.map(c => ({ ...c })) : []);
   const [newCarName, setNewCarName] = useState('');
   const [newCarType, setNewCarType] = useState(FLEET_TYPE_OPTIONS[0]);
   const [editingCarId, setEditingCarId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [editingType, setEditingType] = useState(FLEET_TYPE_OPTIONS[0]);
 
-  const handleAdd = async () => {
+  useEffect(() => {
+    setFleetCarsLocal(Array.isArray(fleetCars) ? fleetCars.map(c => ({ ...c })) : []);
+  }, [fleetCars]);
+
+  const handleAdd = () => {
     if (!newCarName.trim()) return;
     const id = `f${Date.now()}`;
     const car = { id, name: newCarName.trim(), type: newCarType, status: 'active', inspectionExpiry: '' };
-    setFleetCars(prev => [...prev, car]);
-    // Firestore 反映（失敗してもローカルはそのまま）
-    try {
-      await upsertDocument('fleetCars', id, car);
-    } catch (_) {}
+    setFleetCarsLocal(prev => [...prev, car]);
     setNewCarName('');
   };
 
-  const handleRemove = async (car) => {
+  const handleRemove = (car) => {
     const hasRes = reservations.some(r => r.carId === car.id);
-    if (hasRes && !window.confirm(`「${car.name}」に予約が入っています。削除すると予約も解除され、紐づくカードの代車情報もクリアされます。削除しますか？`)) return;
-    setFleetCars(prev => prev.filter(c => c.id !== car.id));
-    if (hasRes) {
-      setReservations(prev => prev.filter(r => r.carId !== car.id));
-      if (setTasks) setTasks(prev => prev.map(t => t.loanerCarId === car.id ? { ...t, loanerCarId: '', loanerType: 'none' } : t));
-    }
-    try {
-      await deleteDocument('fleetCars', car.id);
-    } catch (_) {}
+    if (hasRes && !window.confirm(`「${car.name}」に予約が入っています。削除すると保存時に予約も解除され、紐づくカードの代車情報もクリアされます。削除しますか？`)) return;
+    setFleetCarsLocal(prev => prev.filter(c => c.id !== car.id));
   };
 
-  const handleStatusChange = async (carId, status) => {
-    setFleetCars(prev => prev.map(c => c.id === carId ? { ...c, status } : c));
-    try {
-      const target = fleetCars.find(c => c.id === carId);
-      if (target) {
-        await upsertDocument('fleetCars', carId, { ...target, status });
-      }
-    } catch (_) {}
+  const handleStatusChange = (carId, status) => {
+    setFleetCarsLocal(prev => prev.map(c => c.id === carId ? { ...c, status } : c));
   };
 
-  const handleExpiryChange = async (carId, value) => {
-    setFleetCars(prev => prev.map(c => c.id === carId ? { ...c, inspectionExpiry: value } : c));
-    try {
-      const target = fleetCars.find(c => c.id === carId);
-      if (target) {
-        await upsertDocument('fleetCars', carId, { ...target, inspectionExpiry: value });
-      }
-    } catch (_) {}
+  const handleExpiryChange = (carId, value) => {
+    setFleetCarsLocal(prev => prev.map(c => c.id === carId ? { ...c, inspectionExpiry: value } : c));
   };
 
   const beginEdit = (car) => {
@@ -1129,24 +1143,23 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
     setEditingType(FLEET_TYPE_OPTIONS[0]);
   };
 
-  const saveEdit = async () => {
+  const saveEdit = () => {
     if (!editingCarId) return;
     const trimmedName = editingName.trim();
     if (!trimmedName) return;
-    setFleetCars(prev => prev.map(c => c.id === editingCarId ? { ...c, name: trimmedName, type: editingType } : c));
-    try {
-      const target = fleetCars.find(c => c.id === editingCarId);
-      if (target) {
-        await upsertDocument('fleetCars', editingCarId, { ...target, name: trimmedName, type: editingType });
-      }
-    } catch (_) {}
+    setFleetCarsLocal(prev => prev.map(c => c.id === editingCarId ? { ...c, name: trimmedName, type: editingType } : c));
     cancelEdit();
   };
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <button type="button" onClick={onBack} className="text-sm text-blue-600 hover:underline">← 設定に戻る</button>
+        {onSaveFleet && (
+          <button type="button" onClick={() => onSaveFleet(fleetCarsLocal)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium">
+            保存
+          </button>
+        )}
       </div>
       <p className="text-sm text-gray-600 mb-4">
         代車・レンタカーの車両を追加・削除・ステータス変更できます。ここでの変更は代車ガントチャートとカード作成時の車両選択にも反映されます。
@@ -1182,7 +1195,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
       <div className="space-y-3">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">登録済み車両</div>
         <div className="border border-gray-200 rounded-lg max-h-[340px] overflow-y-auto divide-y divide-gray-100">
-          {fleetCars.map(car => (
+          {fleetCarsLocal.map(car => (
             <div key={car.id} className="px-4 py-3 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 {editingCarId === car.id ? (
@@ -1259,7 +1272,7 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
               </button>
             </div>
           ))}
-          {fleetCars.length === 0 && (
+          {fleetCarsLocal.length === 0 && (
             <div className="px-4 py-6 text-sm text-gray-400 text-center">登録されている車両はありません。</div>
           )}
         </div>
@@ -1368,13 +1381,26 @@ function ColumnEditPanel({ boardColumnsConfig, setBoardColumnsConfig, columnStat
 }
 
 // --- 担当者一覧の編集パネル（受付・鈑金・塗装のプルダウン項目の増減）---
-function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack }) {
+function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, onSave }) {
+  const [localConfig, setLocalConfig] = useState(() => ({
+    reception: Array.isArray(staffOptionsConfig?.reception) ? [...staffOptionsConfig.reception] : [],
+    body: Array.isArray(staffOptionsConfig?.body) ? [...staffOptionsConfig.body] : [],
+    paint: Array.isArray(staffOptionsConfig?.paint) ? [...staffOptionsConfig.paint] : [],
+  }));
   const [newName, setNewName] = useState({ reception: '', body: '', paint: '' });
+
+  useEffect(() => {
+    setLocalConfig({
+      reception: Array.isArray(staffOptionsConfig?.reception) ? [...staffOptionsConfig.reception] : [],
+      body: Array.isArray(staffOptionsConfig?.body) ? [...staffOptionsConfig.body] : [],
+      paint: Array.isArray(staffOptionsConfig?.paint) ? [...staffOptionsConfig.paint] : [],
+    });
+  }, [staffOptionsConfig]);
 
   const handleAdd = (type) => {
     const name = (newName[type] || '').trim();
     if (!name) return;
-    setStaffOptionsConfig(prev => ({
+    setLocalConfig(prev => ({
       ...prev,
       [type]: [...(prev[type] || []), name]
     }));
@@ -1382,7 +1408,7 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack }
   };
 
   const handleRemove = (type, index) => {
-    setStaffOptionsConfig(prev => ({
+    setLocalConfig(prev => ({
       ...prev,
       [type]: (prev[type] || []).filter((_, i) => i !== index)
     }));
@@ -1395,6 +1421,11 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack }
     <>
       <div className="flex items-center justify-between mb-4">
         <button type="button" onClick={onBack} className="text-sm text-blue-600 hover:underline">← 設定に戻る</button>
+        {onSave && (
+          <button type="button" onClick={() => onSave(localConfig)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium">
+            保存
+          </button>
+        )}
       </div>
       <p className="text-sm text-gray-600 mb-4">
         カード作成・カード詳細の「受付担当者」「鈑金担当者」「塗装担当者」のプルダウンに表示する項目を追加・削除できます。ログイン中のアカウント（受付担当者）は常に先頭に表示されます。
@@ -1415,13 +1446,13 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack }
               <button type="button" onClick={() => handleAdd(type)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 whitespace-nowrap">追加</button>
             </div>
             <ul className="space-y-1 max-h-32 overflow-y-auto">
-              {(staffOptionsConfig[type] || []).map((name, idx) => (
+              {(localConfig[type] || []).map((name, idx) => (
                 <li key={`${type}-${idx}`} className="flex items-center justify-between gap-2 py-1">
                   <span className="text-sm text-gray-800">{name}</span>
                   <button type="button" onClick={() => handleRemove(type, idx)} className="text-xs text-red-600 hover:underline">削除</button>
                 </li>
               ))}
-              {(staffOptionsConfig[type] || []).length === 0 && <li className="text-sm text-gray-400 py-2">項目がありません。上で追加してください。</li>}
+              {(localConfig[type] || []).length === 0 && <li className="text-sm text-gray-400 py-2">項目がありません。上で追加してください。</li>}
             </ul>
           </div>
         ))}
@@ -1772,31 +1803,71 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   useEffect(() => {
     if (!isFirebaseConfigured()) return;
     const unsubscribe = subscribeCollection('meta', (items) => {
-      const doc = items.find((it) => it.id === 'staffOptions');
-      if (!doc) return;
-      const next = {
-        reception: Array.isArray(doc.reception) && doc.reception.length > 0
-          ? doc.reception.filter((s) => typeof s === 'string')
-          : [...RECEPTION_STAFF_OPTIONS],
-        body: Array.isArray(doc.body) ? doc.body.filter((s) => typeof s === 'string') : [],
-        paint: Array.isArray(doc.paint) ? doc.paint.filter((s) => typeof s === 'string') : [],
-      };
-      setStaffOptionsConfig((prev) => {
-        try {
-          if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
-        } catch {
-          // ignore
-        }
-        return next;
-      });
+      const staffDoc = items.find((it) => it.id === 'staffOptions');
+      if (staffDoc) {
+        const next = {
+          reception: Array.isArray(staffDoc.reception) && staffDoc.reception.length > 0
+            ? staffDoc.reception.filter((s) => typeof s === 'string')
+            : [...RECEPTION_STAFF_OPTIONS],
+          body: Array.isArray(staffDoc.body) ? staffDoc.body.filter((s) => typeof s === 'string') : [],
+          paint: Array.isArray(staffDoc.paint) ? staffDoc.paint.filter((s) => typeof s === 'string') : [],
+        };
+        setStaffOptionsConfig((prev) => {
+          try {
+            if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+          } catch {
+            // ignore
+          }
+          return next;
+        });
+      }
+      const linkDoc = items.find((it) => it.id === 'linkConfig');
+      if (linkDoc && linkDoc.data && typeof linkDoc.data === 'object' && !Array.isArray(linkDoc.data)) {
+        const base = buildInitialColumnStatuses();
+        Object.keys(linkDoc.data).forEach((bid) => {
+          if (base[bid] && linkDoc.data[bid] && typeof linkDoc.data[bid] === 'object' && !Array.isArray(linkDoc.data[bid])) {
+            Object.keys(linkDoc.data[bid]).forEach((cid) => {
+              const arr = linkDoc.data[bid][cid];
+              if (Array.isArray(arr) && arr.length > 0) base[bid][cid] = arr;
+            });
+          }
+        });
+        setColumnStatuses((prev) => {
+          try {
+            if (JSON.stringify(prev) === JSON.stringify(base)) return prev;
+          } catch {
+            // ignore
+          }
+          return base;
+        });
+      }
     });
     return () => unsubscribe && unsubscribe();
   }, []);
-  useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    if (!staffOptionsConfig) return;
-    upsertDocument('meta', 'staffOptions', staffOptionsConfig).catch(() => {});
-  }, [staffOptionsConfig]);
+  const handleSaveStaffOptions = (nextConfig) => {
+    setStaffOptionsConfig(nextConfig);
+    if (isFirebaseConfigured()) upsertDocument('meta', 'staffOptions', nextConfig).catch(() => {});
+  };
+  const handleSaveLinkConfig = (nextData) => {
+    setColumnStatuses(nextData);
+    if (isFirebaseConfigured()) upsertDocument('meta', 'linkConfig', { data: nextData }).catch(() => {});
+  };
+  const handleSaveFleet = (newFleet) => {
+    const nextIds = new Set((newFleet || []).map(c => c.id));
+    const removedIds = (fleetCars || []).filter(c => !nextIds.has(c.id)).map(c => c.id);
+    if (isFirebaseConfigured()) {
+      removedIds.forEach(id => deleteDocument('fleetCars', id).catch(() => {}));
+      reservations.filter(r => removedIds.includes(r.carId)).forEach(r => deleteDocument('boards/main/reservations', r.id).catch(() => {}));
+    }
+    if (removedIds.length > 0) {
+      setReservations(prev => prev.filter(r => !removedIds.includes(r.carId)));
+      setTasks(prev => prev.map(t => removedIds.includes(t.loanerCarId) ? { ...t, loanerCarId: '', loanerType: 'none' } : t));
+    }
+    (newFleet || []).forEach(car => {
+      if (isFirebaseConfigured()) upsertDocument('fleetCars', car.id, car).catch(() => {});
+    });
+    setFleetCars(Array.isArray(newFleet) ? newFleet : []);
+  };
   const [searchFilters, setSearchFilters] = useState({
     assignee: '', maker: '', car: '', receptionStaff: '', bodyStaff: '', paintStaff: '', number: '', color: ''
   });
@@ -2001,7 +2072,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             </div>
           )}
         </div>
-        {task.car} {task.number}<br/>{task.assignee}<br/>
+        {task.assignee}<br/>{task.car} {task.number}<br/>
         <span className="text-gray-500 font-normal inline-block mt-0.5">{formatInOutDate(task.inDate, task.outDate)}</span>
       </div>
       <div className="flex gap-1 mb-1 text-gray-500">
@@ -2480,21 +2551,21 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     <label className="block text-gray-600 mb-1">受付担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.receptionStaff} onChange={(e) => setSearchFilters(f => ({ ...f, receptionStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'reception').map(n => <option key={n} value={n}>{n}</option>)}
+                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'reception').map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">鈑金担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.bodyStaff} onChange={(e) => setSearchFilters(f => ({ ...f, bodyStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'body').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
+                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'body').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">塗装担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.paintStaff} onChange={(e) => setSearchFilters(f => ({ ...f, paintStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig, 'paint').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
+                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'paint').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
@@ -2569,7 +2640,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
                             <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
-                              {selectedTask.car} {selectedTask.number} / {selectedTask.assignee}
+                              {selectedTask.assignee} / {selectedTask.car} {selectedTask.number}
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
@@ -2832,6 +2903,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   staffOptionsConfig={staffOptionsConfig}
                   setStaffOptionsConfig={setStaffOptionsConfig}
                   onBack={() => setIsStaffOptionsOpen(false)}
+                  onSave={handleSaveStaffOptions}
                 />
               ) : isColumnEditOpen ? (
                 <ColumnEditPanel
@@ -2846,6 +2918,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   columnStatuses={columnStatuses}
                   setColumnStatuses={setColumnStatuses}
                   onBack={() => setIsLinkSettingsOpen(false)}
+                  onSave={handleSaveLinkConfig}
                 />
               ) : isFleetSettingsOpen ? (
                 <FleetMasterPanel
@@ -2855,6 +2928,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                   setReservations={setReservations}
                   setTasks={setTasks}
                   onBack={() => setIsFleetSettingsOpen(false)}
+                  onSaveFleet={handleSaveFleet}
                 />
               ) : (
                 <>
