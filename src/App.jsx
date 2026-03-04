@@ -2634,61 +2634,65 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
               <div className={`flex flex-col overflow-hidden transition-all duration-300 ${selectedTaskId ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
                 <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 pt-4 bg-white">
                   <div className="flex gap-2 h-full w-full min-w-0">
-                    {isNfcMode && selectedTask && (
+                    {isNfcMode && (
                       <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
-                            <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
-                              {selectedTask.assignee} / {selectedTask.car} {selectedTask.number}
-                            </span>
+                        {selectedTask ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
+                                <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
+                                  {selectedTask.assignee} / {selectedTask.car} {selectedTask.number}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-gray-500">対象ボード:</span>
+                                <select
+                                  className="border border-amber-300 rounded px-2 py-0.5 bg-white text-[10px]"
+                                  value={nfcBoardId}
+                                  onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
+                                >
+                                  <option value="body">鈑金ボード</option>
+                                  <option value="paint">塗装ボード</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <span className="text-[11px] text-gray-700">
+                                現在の列:{' '}
+                                {boardColumns.find(col => getColumnStatuses(col).includes(selectedTask.status))?.name || '判別できません'}
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[11px] text-gray-700">移動先:</span>
+                                <select
+                                  className="border border-amber-300 rounded px-2 py-1 bg-white text-[11px]"
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    const colId = e.target.value;
+                                    if (!colId) return;
+                                    const col = boardColumns.find(c => c.id === colId);
+                                    if (!col) return;
+                                    const primaryStatus = getColumnPrimaryStatus(col);
+                                    if (!primaryStatus || primaryStatus === selectedTask.status) return;
+                                    handleTaskUpdate({ ...selectedTask, status: primaryStatus });
+                                    e.target.value = '';
+                                  }}
+                                >
+                                  <option value="">列を選択</option>
+                                  {boardColumns.map(col => (
+                                    <option key={col.id} value={col.id}>
+                                      {col.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-[11px] text-red-700">
+                            このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
                           </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-gray-500">対象ボード:</span>
-                            <button
-                              type="button"
-                              onClick={() => setNfcBoardId('body')}
-                              className={`px-2 py-0.5 rounded-l border text-[10px] ${
-                                nfcBoardId === 'body' ? 'bg-amber-600 border-amber-700 text-white' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
-                              }`}
-                            >
-                              鈑金
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setNfcBoardId('paint')}
-                              className={`px-2 py-0.5 rounded-r border text-[10px] -ml-px ${
-                                nfcBoardId === 'paint' ? 'bg-amber-600 border-amber-700 text-white' : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
-                              }`}
-                            >
-                              塗装
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {boardColumns.map(col => {
-                            const statuses = getColumnStatuses(col);
-                            const primaryStatus = getColumnPrimaryStatus(col);
-                            const isCurrent = statuses.includes(selectedTask.status);
-                            return (
-                              <button
-                                key={col.id}
-                                type="button"
-                                onClick={() => {
-                                  if (!primaryStatus || primaryStatus === selectedTask.status) return;
-                                  handleTaskUpdate({ ...selectedTask, status: primaryStatus });
-                                }}
-                                className={`px-2 py-1 rounded border text-[11px] ${
-                                  isCurrent
-                                    ? 'bg-amber-600 border-amber-700 text-white'
-                                    : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
-                                }`}
-                              >
-                                {col.name}
-                              </button>
-                            );
-                          })}
-                        </div>
+                        )}
                       </div>
                     )}
                     {!isNfcMode && boardColumns.map(col => {
