@@ -8,6 +8,7 @@ import {
   getFirestoreDb,
   isFirebaseConfigured,
   signInWithGoogle,
+  handleRedirectResult,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   subscribeCollection,
@@ -3978,29 +3979,37 @@ export default function App() {
       setIsAuthLoading(false);
       return;
     }
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setAuthError('');
-      if (!user) {
-        setCurrentUser('');
-        setIsLoggedIn(false);
-        setIsAuthLoading(false);
-        return;
-      }
-      const allowed = getAllowedEmails();
-      if (allowed && allowed.length > 0) {
-        const email = (user.email || '').toLowerCase();
-        if (!email || !allowed.includes(email)) {
-          firebaseSignOut();
-          setAuthError('このアカウントではログインできません。管理者にお問い合わせください。');
+
+    const unsubRef = { current: null };
+    (async () => {
+      // スマホでリダイレクト認証から戻った直後は、先に getRedirectResult を処理する
+      await handleRedirectResult();
+      unsubRef.current = onAuthStateChanged(auth, (user) => {
+        setAuthError('');
+        if (!user) {
+          setCurrentUser('');
+          setIsLoggedIn(false);
           setIsAuthLoading(false);
           return;
         }
-      }
-      setCurrentUser(user.displayName || user.email || 'ログインユーザー');
-      setIsLoggedIn(true);
-      setIsAuthLoading(false);
-    });
-    return () => unsubscribe && unsubscribe();
+        const allowed = getAllowedEmails();
+        if (allowed && allowed.length > 0) {
+          const email = (user.email || '').toLowerCase();
+          if (!email || !allowed.includes(email)) {
+            firebaseSignOut();
+            setAuthError('このアカウントではログインできません。管理者にお問い合わせください。');
+            setIsAuthLoading(false);
+            return;
+          }
+        }
+        setCurrentUser(user.displayName || user.email || 'ログインユーザー');
+        setIsLoggedIn(true);
+        setIsAuthLoading(false);
+      });
+    })();
+    return () => {
+      if (unsubRef.current && typeof unsubRef.current === 'function') unsubRef.current();
+    };
   }, []);
 
   const handleSignIn = async () => {
@@ -4041,5 +4050,17 @@ export default function App() {
       />
     );
   }
-  return <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />;
+  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
+  return (
+    <>
+      {isDemoMode && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow" style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}>
+          デモ環境 — 表示データは実運用データと共有されません
+        </div>
+      )}
+      <div style={isDemoMode ? { paddingTop: 'calc(2.5rem + env(safe-area-inset-top))' } : undefined}>
+        <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
+      </div>
+    </>
+  );
 }

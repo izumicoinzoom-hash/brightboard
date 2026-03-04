@@ -8,6 +8,8 @@ import {
   setPersistence,
   browserLocalPersistence,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
   onAuthStateChanged
@@ -40,6 +42,15 @@ export function isFirebaseConfigured() {
   return !!(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId);
 }
 
+/** スマホ・タブレットではポップアップが不安定なためリダイレクト認証を使う */
+export function isMobileOrNarrow() {
+  if (typeof navigator === 'undefined' || !navigator.userAgent) return false;
+  const ua = navigator.userAgent;
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
+  if (typeof window !== 'undefined' && window.innerWidth < 768) return true;
+  return false;
+}
+
 export function getFirebaseAuth() {
   if (!isFirebaseConfigured()) return null;
   if (!app) {
@@ -67,10 +78,27 @@ export function getFirestoreDb() {
   return db;
 }
 
+/** リダイレクトから戻った後の結果を処理（アプリ起動時に1回呼ぶ） */
+export async function handleRedirectResult() {
+  const a = getFirebaseAuth();
+  if (!a) return null;
+  try {
+    const result = await getRedirectResult(a);
+    return result ? result.user : null;
+  } catch (err) {
+    if (typeof console !== 'undefined') console.warn('getRedirectResult error:', err);
+    return null;
+  }
+}
+
 export async function signInWithGoogle() {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebaseの設定がありません。');
   const provider = new GoogleAuthProvider();
+  if (isMobileOrNarrow()) {
+    await signInWithRedirect(a, provider);
+    return null;
+  }
   const result = await signInWithPopup(a, provider);
   return result.user;
 }
