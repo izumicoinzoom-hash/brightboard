@@ -2598,6 +2598,39 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     return set;
   }, [boardColumnsConfig, columnStatuses]);
 
+  const historyEntries = useMemo(() => {
+    const entries = [];
+    tasks.forEach((task) => {
+      if (!task) return;
+      const hist = Array.isArray(task.statusHistory) ? task.statusHistory : [];
+      hist.forEach((h, index) => {
+        const fromStatus = h && h.status ? h.status : null;
+        const toStatus = h && h.nextStatus ? h.nextStatus : null;
+        const byUser = h && typeof h.byUser === 'string' ? h.byUser : null;
+        const enteredAt = h && h.enteredAt ? h.enteredAt : null;
+        const exitedAt = h && h.exitedAt ? h.exitedAt : null;
+        const at = exitedAt || enteredAt || null;
+        entries.push({
+          id: `${task.id}-${index}`,
+          taskId: task.id,
+          taskLabel: `${task.assignee || '担当未設定'} / ${task.car || '車種未設定'} ${task.number || ''}`,
+          fromStatus,
+          toStatus,
+          byUser,
+          enteredAt,
+          exitedAt,
+          at
+        });
+      });
+    });
+    entries.sort((a, b) => {
+      const aTime = a.at || '';
+      const bTime = b.at || '';
+      return aTime < bTime ? 1 : aTime > bTime ? -1 : 0;
+    });
+    return entries;
+  }, [tasks]);
+
   const orphanedTasks = useMemo(() =>
     tasks.filter(t => t && t.status != null && !allValidStatuses.has(t.status)),
     [tasks, allValidStatuses]
@@ -3065,7 +3098,61 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
 
         <div className="flex-1 flex overflow-hidden bg-white min-h-0">
           {currentView === 'gantt' ? (
-            <LoanerGanttChart fleetCars={fleetCars} setFleetCars={setFleetCars} reservations={reservations} setReservations={setReservations} onReservationUpdate={handleReservationUpdate} setTasks={setTasks} />
+            <LoanerGanttChart
+              fleetCars={fleetCars}
+              setFleetCars={setFleetCars}
+              reservations={reservations}
+              setReservations={setReservations}
+              onReservationUpdate={handleReservationUpdate}
+              setTasks={setTasks}
+            />
+          ) : currentView === 'history' ? (
+            <div className="flex-1 min-h-0 p-4 bg-white overflow-y-auto">
+              <h2 className="text-lg font-bold text-gray-800 mb-3">カード移動履歴</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                すべてのカードのステータス変更履歴です。新しい順に最大 500 件まで表示します。
+              </p>
+              {historyEntries.length === 0 ? (
+                <p className="text-sm text-gray-600">まだ履歴はありません。</p>
+              ) : (
+                <div className="space-y-2 max-h-full overflow-y-auto">
+                  {historyEntries.slice(0, 500).map((h) => {
+                    const fromLabel =
+                      h.fromStatus &&
+                      allColumnOptions.find((opt) => opt.primaryStatus === h.fromStatus)?.label;
+                    const toLabel =
+                      h.toStatus &&
+                      allColumnOptions.find((opt) => opt.primaryStatus === h.toStatus)?.label;
+                    const timeLabel = h.exitedAt || h.enteredAt || '';
+                    return (
+                      <div
+                        key={h.id}
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-xs sm:text-sm text-gray-800 bg-white"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-medium">
+                            {h.taskLabel}
+                          </div>
+                          <div className="text-[11px] text-gray-500">
+                            {timeLabel}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[11px] sm:text-xs text-gray-600">
+                          <span>
+                            {fromLabel || h.fromStatus || '不明'} → {toLabel || h.toStatus || '不明'}
+                          </span>
+                          {h.byUser && (
+                            <span className="ml-2 text-gray-500">
+                              （操作: {h.byUser}）
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <div className={`flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${selectedTaskId && !isNfcMode ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
@@ -3580,6 +3667,27 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                         </div>
                       </div>
                       <p className="text-xs text-gray-400 mt-2">判定: 幅768px未満＝スマホ、768px〜1023px＝タブレット、1024px以上＝パソコン</p>
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">カード移動履歴</h3>
+                      <p className="text-sm text-gray-500 mb-3">
+                        すべてのカードのステータス変更履歴を一覧で確認できます。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSettingsOpen(false);
+                          setIsLinkSettingsOpen(false);
+                          setIsFleetSettingsOpen(false);
+                          setIsColumnEditOpen(false);
+                          setIsStaffOptionsOpen(false);
+                          setCurrentView('history');
+                          setSelectedTaskId(null);
+                        }}
+                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center justify-center gap-2"
+                      >
+                        履歴ページを開く
+                      </button>
                     </section>
                   </div>
                 </>
