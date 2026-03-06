@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  AlertTriangle, Search, Settings, Bell, ChevronDown, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, ChevronRight, Truck, Calendar, MessageCircle, Pencil
+  AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil
 } from 'lucide-react';
 import {
   getFirebaseAuth,
@@ -394,9 +394,9 @@ const AVAILABLE_TASKS = [
   { id: 'settings', icon: Settings }
 ];
 
-// --- ボード設定データ（表示順: 入庫 → 全作業 → 鈑金 → 塗装 → 納車）---
+// --- ボード設定データ（表示順: 入庫 → 全作業 → 鈑金 → 塗装 → 納車 → 迷子）---
 // 列の statuses: 省略時は [id] として扱い、複数指定時はそのいずれかの status のタスクを表示。ドロップ時は statuses[0] に更新。
-const BOARD_ORDER = ['planning', 'main', 'body', 'paint', 'delivery'];
+const BOARD_ORDER = ['planning', 'main', 'body', 'paint', 'delivery', 'orphan'];
 const BOARDS = {
   planning: { id: 'planning', title: '〈入庫〉予約管理（Planning）', columns: [ { id: 'unscheduled', name: '入庫日未定' }, { id: 'mon', name: '月' }, { id: 'tue', name: '火' }, { id: 'wed', name: '水' }, { id: 'thu', name: '木' }, { id: 'fri', name: '金' }, { id: 'sat', name: '土' }, { id: 'sun', name: '日' }, { id: 'received', name: '入庫済み' }, ] },
   // 全作業 ⇔ 塗装: 下処理＆塗装＝塗装の下処理・下処理済P待ち・塗装を統合。Pのみ＝p_only。磨き・作業完了はそのまま。
@@ -414,7 +414,8 @@ const BOARDS = {
   ] },
   body: { id: 'body', title: '〈鈑金〉工程管理（Body）', columns: [ { id: 'b_wait', name: '鈑金 (Waiting)' }, { id: 'b_doing', name: '鈑金中' }, { id: 'b_done_p_wait', name: '鈑金完了 P待ち' }, { id: 'assembly', name: '組付け' }, { id: 'assembly_done_both', name: '組付完了 (磨無 & 磨完了)', statuses: ['completed', 'assembly_done_both'] }, { id: 'assembly_done_nuri', name: '組付完了 (磨無)', statuses: ['completed', 'assembly_done_nuri'] }, ] },
   paint: { id: 'paint', title: '〈塗装〉工程管理（Paint）', columns: [ { id: 'prep', name: '下処理', statuses: ['prep', 'b_done_p_wait'] }, { id: 'prep_done', name: '下処理済 (P待ち)' }, { id: 'painting', name: '塗装' }, { id: 'assembly_wait', name: '組付け待ち' }, { id: 'polishing', name: '磨き' }, { id: 'polish_done', name: '磨き完了', statuses: ['completed', 'polish_done'] }, ] },
-  delivery: { id: 'delivery', title: '〈納車〉管理（Delivery）', columns: [ { id: 'delivery_wait', name: '納車待ち' }, { id: 'delivery_today', name: '本日納車' }, { id: 'delivered_unpaid', name: '納車済み-支払い待ち' }, { id: 'delivered_paid', name: '納車済-支払い済み' }, { id: 'completed', name: '完了' }, ] }
+  delivery: { id: 'delivery', title: '〈納車〉管理（Delivery）', columns: [ { id: 'delivery_wait', name: '納車待ち' }, { id: 'delivery_today', name: '本日納車' }, { id: 'delivered_unpaid', name: '納車済み-支払い待ち' }, { id: 'delivered_paid', name: '納車済-支払い済み' }, { id: 'completed', name: '完了' }, ] },
+  orphan: { id: 'orphan', title: '迷子カード移動ボード', columns: [ { id: 'orphan', name: '迷子列' } ] }
 };
 
 const LINK_CONFIG_KEY = 'brightboard_column_statuses';
@@ -825,19 +826,30 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
             車両ごとの予約状況と空き状況を管理します。車両の登録・削除は左下の歯車「代車マスタ設定」から行ってください。
           </p>
         </div>
-        <div className="flex gap-2 items-center">
-          <Button variant="secondary" onClick={goToToday}>今日</Button>
-          <Button variant="secondary" onClick={goPrev}>&lt;</Button>
-          <Button variant="secondary" onClick={goNext}>&gt;</Button>
-        </div>
       </div>
 
       <div className="flex-shrink-0 border-b border-gray-200 bg-gray-50">
-        <button type="button" onClick={() => setIsScheduleExpanded(!isScheduleExpanded)} className="w-full px-6 py-3 flex items-center gap-2 text-left hover:bg-gray-100 transition-colors">
-          <ChevronRight className={`w-5 h-5 text-gray-500 flex-shrink-0 transition-transform ${isScheduleExpanded ? 'rotate-90' : ''}`} />
-          <span className="font-semibold text-gray-700">貸出日程</span>
-          {!isScheduleExpanded && <span className="text-sm text-gray-500">（クリックで展開）</span>}
-        </button>
+        <div className="px-6 py-3 flex items-center gap-3">
+          <button type="button" onClick={() => setIsScheduleExpanded(!isScheduleExpanded)} className="flex items-center gap-2 text-left hover:bg-gray-100 transition-colors rounded py-1 px-1 -my-1 -mx-1">
+            <ChevronRight className={`w-5 h-5 text-gray-500 flex-shrink-0 transition-transform ${isScheduleExpanded ? 'rotate-90' : ''}`} />
+            <span className="font-semibold text-gray-700">貸出日程</span>
+            {!isScheduleExpanded && <span className="text-sm text-gray-500">（クリックで展開）</span>}
+          </button>
+          <div className="flex items-center gap-1 ml-1">
+            <button type="button" onClick={goPrev} className="p-2 rounded-md hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-colors" title="前の週">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button type="button" onClick={goNext} className="p-2 rounded-md hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-colors" title="次の週">
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          <button type="button" onClick={goToToday} className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors" title="今日の週を表示">
+            今日
+          </button>
+          <button type="button" onClick={() => window.location.reload()} className="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors" title="画面を再読み込み">
+            更新
+          </button>
+        </div>
       </div>
 
       {isScheduleExpanded && (
@@ -1583,8 +1595,9 @@ function CalendarLinkModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end p-0 pointer-events-none">
+      <div className="w-0 flex-1 min-w-0" aria-hidden />
+      <div className="bg-white rounded-l-lg shadow-xl w-full max-w-md pointer-events-auto flex flex-col max-h-full overflow-y-auto border-l border-gray-200">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-600" />
@@ -1638,7 +1651,7 @@ function CalendarLinkModal({ onClose }) {
 }
 
 // --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
-function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout }) {
+function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null }) {
   const [tasks, setTasks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1646,11 +1659,10 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
   const [isSaving, setIsSaving] = useState(false);
   const [boardColumnsConfig] = useState(() => getBoardColumnsConfig());
   const [columnStatuses] = useState(() => buildInitialColumnStatuses());
+  const [nfcBoardId, setNfcBoardId] = useState('body'); // 鈑金 or 塗装
 
-  const nfcTaskId =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('nfcTaskId')
-      : null;
+  const nfcTaskIdFromUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('nfcTaskId') : null;
+  const nfcTaskId = nfcTaskIdProp || nfcTaskIdFromUrl || null;
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -1665,14 +1677,16 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
     return () => unsubscribe && unsubscribe();
   }, []);
 
+  const nfcTargetBoardId = nfcBoardId === 'paint' ? 'paint' : 'body';
+
   const boardColumns = useMemo(
-    () => getColumnsForBoard(boardColumnsConfig, 'main'),
-    [boardColumnsConfig]
+    () => getColumnsForBoard(boardColumnsConfig, nfcTargetBoardId),
+    [boardColumnsConfig, nfcTargetBoardId]
   );
 
-  const getColumnStatusesForMain = (col) => {
+  const getColumnStatusesForBoard = (boardId, col) => {
     if (!col || !col.id) return [];
-    const custom = columnStatuses?.main?.[col.id];
+    const custom = columnStatuses?.[boardId]?.[col.id];
     const list =
       Array.isArray(custom) && custom.length
         ? custom
@@ -1682,14 +1696,14 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
     return Array.isArray(list) ? list : [col.id];
   };
 
-  const getPrimaryStatusForMain = (col) => {
-    const list = getColumnStatusesForMain(col);
+  const getPrimaryStatusForBoard = (boardId, col) => {
+    const list = getColumnStatusesForBoard(boardId, col);
     return list && list[0] ? list[0] : col.id;
   };
 
   const task = tasks.find((t) => t.id === nfcTaskId) || null;
   const currentColumn = task
-    ? boardColumns.find((col) => getColumnStatusesForMain(col).includes(task.status))
+    ? boardColumns.find((col) => getColumnStatusesForBoard(nfcTargetBoardId, col).includes(task.status))
     : null;
 
   const [nextColumnId, setNextColumnId] = useState('');
@@ -1698,17 +1712,17 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
     // 初期表示時に「現在と異なる最初の列」をデフォルト選択にする
     if (!task || !boardColumns.length) return;
     const firstDifferent = boardColumns.find((col) => {
-      const primary = getPrimaryStatusForMain(col);
+      const primary = getPrimaryStatusForBoard(nfcTargetBoardId, col);
       return primary && primary !== task.status;
     });
     if (firstDifferent) setNextColumnId(firstDifferent.id);
-  }, [task, boardColumns]);
+  }, [task, boardColumns, nfcTargetBoardId]);
 
   const handleMove = async () => {
     if (!task) return;
     const col = boardColumns.find((c) => c.id === nextColumnId);
     if (!col) return;
-    const primaryStatus = getPrimaryStatusForMain(col);
+    const primaryStatus = getPrimaryStatusForBoard(nfcTargetBoardId, col);
     if (!primaryStatus || primaryStatus === task.status) return;
 
     setIsSaving(true);
@@ -1730,72 +1744,94 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
   };
 
   const baseClasses =
-    'min-h-screen bg-gray-100 flex flex-col items-stretch justify-start font-sans text-gray-800';
+  'min-h-screen bg-gray-100 flex flex-col items-stretch justify-start font-sans text-gray-800 text-base';
 
   return (
     <div className={baseClasses}>
-      <header className="bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white" />
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-4">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white" />
           <div className="flex flex-col">
-            <span className="text-xs font-semibold text-gray-500">BrightBoard - 清田自動車</span>
-            <span className="text-sm font-bold text-gray-800">NFC 列移動モード</span>
+            <span className="text-xl font-semibold text-gray-500">BrightBoard - 清田自動車</span>
+            <span className="text-2xl font-bold text-gray-800">NFC 列移動モード</span>
           </div>
         </div>
         {typeof onLogout === 'function' && (
           <button
             type="button"
             onClick={onLogout}
-            className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+            className="text-xl px-5 py-2.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
           >
             ログアウト
           </button>
         )}
       </header>
 
-      <main className="flex-1 flex items-center justify-center px-3 py-4">
-        <div className="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-4 space-y-3">
-          {isLoading && <div className="text-sm text-gray-600">読み込み中です...</div>}
-          {!isLoading && !task && (
-            <div className="text-sm text-red-600">
+      <main className="flex-1 flex items-center justify-center px-4 py-5">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-5 space-y-4">
+          {isLoading && <div className="text-xl text-gray-700">読み込み中です...</div>}
+          {!isLoading && !nfcTaskId && (
+            <div className="space-y-4 text-xl">
+              <p className="font-semibold text-amber-700 text-xl">NFCタグのURLが正しくありません。</p>
+              <p className="text-gray-700 leading-relaxed text-xl">
+                正しいURLには <code className="bg-gray-100 px-1.5 rounded">nfcStandalone=1</code> と <code className="bg-gray-100 px-1.5 rounded">nfcTaskId=カードID</code> の両方が含まれている必要があります。
+              </p>
+              <p className="text-gray-700 text-lg">
+                カード詳細パネルの「NFCタグ用URLを発行」で表示されるURLをそのままNFCタグに書き込んでください。（例: https://withbt.com/kiyota/?nfcStandalone=1&nfcTaskId=t123...）
+              </p>
+            </div>
+          )}
+          {!isLoading && nfcTaskId && !task && (
+            <div className="text-xl text-red-600">
               このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
             </div>
           )}
           {!isLoading && task && (
             <>
               {error && (
-                <div className="px-3 py-2 rounded bg-red-50 border border-red-200 text-xs text-red-700">
+                <div className="px-4 py-3 rounded bg-red-50 border border-red-200 text-xl text-red-700">
                   {error}
                 </div>
               )}
               {success && (
-                <div className="px-3 py-2 rounded bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                <div className="px-4 py-3 rounded bg-emerald-50 border border-emerald-200 text-xl text-emerald-700">
                   {success}
                 </div>
               )}
-              <div className="text-xs text-gray-500 mb-1">対象カード</div>
-              <div className="px-3 py-2 rounded bg-gray-50 border border-gray-200 text-sm">
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-2xl text-gray-800 font-semibold">対象ボード</span>
+                <select
+                  className="border border-gray-300 rounded px-5 py-4 text-2xl bg-white font-medium"
+                  value={nfcBoardId}
+                  onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
+                >
+                  <option value="body">鈑金ボード</option>
+                  <option value="paint">塗装ボード</option>
+                </select>
+              </div>
+              <div className="text-sm text-gray-600 mb-1">対象カード</div>
+              <div className="px-3 py-2 rounded bg-gray-50 border border-gray-200 text-base">
                 <div className="font-semibold text-gray-800 mb-1">
                   {task.assignee || '担当未設定'} / {task.car || '車種未設定'} {task.number || ''}
                 </div>
-                <div className="text-xs text-gray-600">
+                <div className="text-sm text-gray-600">
                   受付担当: {task.receptionStaff || currentUser || '未設定'}
                 </div>
               </div>
 
-              <div className="space-y-1 text-sm">
+              <div className="space-y-3 text-xl">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600 text-xs">現在の列</span>
-                  <span className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[11px] text-blue-700">
+                  <span className="text-gray-800 text-xl font-semibold">現在の列</span>
+                  <span className="px-4 py-2 rounded-full bg-blue-50 border border-blue-100 text-xl text-blue-700 font-semibold">
                     {currentColumn
                       ? currentColumn.name
-                      : task.status || '不明'}
+                      : '判別できません'}
                   </span>
                 </div>
-                <div className="mt-2">
-                  <label className="block text-xs text-gray-600 mb-1">移動先の列</label>
+                <div className="mt-4">
+                  <label className="block text-xl text-gray-800 mb-3 font-semibold">移動先の列</label>
                   <select
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
+                    className="w-full border border-gray-300 rounded px-5 py-4 text-2xl bg-white font-medium"
                     value={nextColumnId}
                     onChange={(e) => setNextColumnId(e.target.value)}
                   >
@@ -1813,7 +1849,7 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout 
                 type="button"
                 onClick={handleMove}
                 disabled={isSaving || !nextColumnId}
-                className="w-full mt-3 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full mt-6 px-6 py-5 rounded-xl bg-blue-600 text-white text-2xl font-bold tracking-wide hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isSaving ? '列を移動中...' : 'この列に移動する'}
               </button>
@@ -1859,7 +1895,6 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       return [...FLEET_CARS];
     }
   });
-  const didSeedFleetRef = useRef(false);
 
   // 予約だけ存在してタスクがないケースを補完しておく（カードが消えないようにする）
   useEffect(() => {
@@ -1952,6 +1987,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
+  const [settingsSaveToast, setSettingsSaveToast] = useState('');
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(nfcTaskId || null);
 
@@ -1964,6 +2000,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const [isFleetSettingsOpen, setIsFleetSettingsOpen] = useState(false);
   const [isColumnEditOpen, setIsColumnEditOpen] = useState(false);
   const [isStaffOptionsOpen, setIsStaffOptionsOpen] = useState(false);
+  const [orphanRecoverySelection, setOrphanRecoverySelection] = useState({});
+  const [orphanSearchText, setOrphanSearchText] = useState('');
   const [boardColumnsConfig, setBoardColumnsConfig] = useState(() => getBoardColumnsConfig());
   const [staffOptionsConfig, setStaffOptionsConfig] = useState(() => getStaffOptionsConfig());
   const [columnStatuses, setColumnStatuses] = useState(() => {
@@ -2009,14 +2047,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     const unsubscribe = subscribeCollection('meta', (items) => {
       const staffDoc = items.find((it) => it.id === 'staffOptions');
       if (staffDoc) {
-        const next = {
-          reception: Array.isArray(staffDoc.reception) && staffDoc.reception.length > 0
-            ? staffDoc.reception.filter((s) => typeof s === 'string')
-            : [...RECEPTION_STAFF_OPTIONS],
-          body: Array.isArray(staffDoc.body) ? staffDoc.body.filter((s) => typeof s === 'string') : [],
-          paint: Array.isArray(staffDoc.paint) ? staffDoc.paint.filter((s) => typeof s === 'string') : [],
-        };
         setStaffOptionsConfig((prev) => {
+          const fromDoc = (key, fallbackEmpty) => {
+            const arr = staffDoc[key];
+            if (Array.isArray(arr) && arr.length > 0) return arr.filter((s) => typeof s === 'string');
+            if (prev && Array.isArray(prev[key]) && prev[key].length > 0) return prev[key];
+            return key === 'reception' ? [...RECEPTION_STAFF_OPTIONS] : fallbackEmpty;
+          };
+          const next = {
+            reception: fromDoc('reception', []),
+            body: fromDoc('body', []),
+            paint: fromDoc('paint', []),
+          };
           try {
             if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
           } catch {
@@ -2028,17 +2070,22 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       const linkDoc = items.find((it) => it.id === 'linkConfig');
       if (linkDoc && linkDoc.data && typeof linkDoc.data === 'object' && !Array.isArray(linkDoc.data)) {
         const base = buildInitialColumnStatuses();
+        let hasAny = false;
         Object.keys(linkDoc.data).forEach((bid) => {
           if (base[bid] && linkDoc.data[bid] && typeof linkDoc.data[bid] === 'object' && !Array.isArray(linkDoc.data[bid])) {
             Object.keys(linkDoc.data[bid]).forEach((cid) => {
               const arr = linkDoc.data[bid][cid];
-              if (Array.isArray(arr) && arr.length > 0) base[bid][cid] = arr;
+              if (Array.isArray(arr) && arr.length > 0) {
+                base[bid][cid] = arr;
+                hasAny = true;
+              }
             });
           }
         });
         setColumnStatuses((prev) => {
           try {
             if (JSON.stringify(prev) === JSON.stringify(base)) return prev;
+            if (!hasAny && prev && typeof prev === 'object' && Object.keys(prev).length > 0) return prev;
           } catch {
             // ignore
           }
@@ -2048,28 +2095,61 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     });
     return () => unsubscribe && unsubscribe();
   }, []);
-  const handleSaveStaffOptions = (nextConfig) => {
+  const showSettingsToast = (message) => {
+    setSettingsSaveToast(message);
+    setTimeout(() => setSettingsSaveToast(''), 4000);
+  };
+  const handleSaveStaffOptions = async (nextConfig) => {
     setStaffOptionsConfig(nextConfig);
-    if (isFirebaseConfigured()) upsertDocument('meta', 'staffOptions', nextConfig).catch(() => {});
+    if (isFirebaseConfigured()) {
+      try {
+        await upsertDocument('meta', 'staffOptions', nextConfig);
+        showSettingsToast('担当者一覧を保存しました（他PCと共有されます）');
+      } catch (e) {
+        showSettingsToast('保存に失敗しました。通信を確認してください。');
+      }
+    }
   };
-  const handleSaveLinkConfig = (nextData) => {
+  const handleSaveLinkConfig = async (nextData) => {
     setColumnStatuses(nextData);
-    if (isFirebaseConfigured()) upsertDocument('meta', 'linkConfig', { data: nextData }).catch(() => {});
+    if (isFirebaseConfigured()) {
+      try {
+        await upsertDocument('meta', 'linkConfig', { data: nextData });
+        showSettingsToast('ボード間リンクを保存しました（他PCと共有されます）');
+      } catch (e) {
+        showSettingsToast('保存に失敗しました。通信を確認してください。');
+      }
+    } else {
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(LINK_CONFIG_KEY, JSON.stringify(nextData));
+        showSettingsToast('ボード間リンクをローカルに保存しました');
+      } catch (_) {}
+    }
   };
-  const handleSaveFleet = (newFleet) => {
+  const handleSaveFleet = async (newFleet) => {
     const nextIds = new Set((newFleet || []).map(c => c.id));
     const removedIds = (fleetCars || []).filter(c => !nextIds.has(c.id)).map(c => c.id);
     if (isFirebaseConfigured()) {
-      removedIds.forEach(id => deleteDocument('fleetCars', id).catch(() => {}));
-      reservations.filter(r => removedIds.includes(r.carId)).forEach(r => deleteDocument('boards/main/reservations', r.id).catch(() => {}));
+      try {
+        await Promise.all(removedIds.map(id => deleteDocument('fleetCars', id)));
+        const related = reservations.filter(r => removedIds.includes(r.carId));
+        await Promise.all(related.map(r => deleteDocument('boards/main/reservations', r.id)));
+      } catch (e) {
+        showSettingsToast('代車マスタの一部削除に失敗しました。');
+      }
     }
     if (removedIds.length > 0) {
       setReservations(prev => prev.filter(r => !removedIds.includes(r.carId)));
       setTasks(prev => prev.map(t => removedIds.includes(t.loanerCarId) ? { ...t, loanerCarId: '', loanerType: 'none' } : t));
     }
-    (newFleet || []).forEach(car => {
-      if (isFirebaseConfigured()) upsertDocument('fleetCars', car.id, car).catch(() => {});
-    });
+    if (isFirebaseConfigured()) {
+      try {
+        await Promise.all((newFleet || []).map(car => upsertDocument('fleetCars', car.id, car)));
+        showSettingsToast('代車マスタを保存しました（他PCと共有されます）');
+      } catch (e) {
+        showSettingsToast('代車マスタの保存に失敗しました。通信を確認してください。');
+      }
+    }
     setFleetCars(Array.isArray(newFleet) ? newFleet : []);
   };
   const [searchFilters, setSearchFilters] = useState({
@@ -2168,12 +2248,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     });
     const unsubscribeFleet = subscribeCollection('fleetCars', (items) => {
       const list = Array.isArray(items) ? items : [];
-      setFleetCars(list);
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(list));
-        }
-      } catch (_) {}
+      setFleetCars((prev) => {
+        if (list.length > 0) return list;
+        if (Array.isArray(prev) && prev.length > 0) return prev;
+        return list;
+      });
+      if (list.length > 0) {
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(FLEET_CARS_KEY, JSON.stringify(list));
+          }
+        } catch (_) {}
+      }
     });
     return () => {
       unsubscribeTasks && unsubscribeTasks();
@@ -2182,22 +2268,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     };
   }, []);
 
-  // 一度だけ、初期マスタの代車が Firestore に無い場合は補完しておく
-  useEffect(() => {
-    if (didSeedFleetRef.current) return;
-    if (!Array.isArray(fleetCars)) return;
-    const existingIds = new Set(fleetCars.map(c => c.id));
-    const toAdd = FLEET_CARS.filter(c => !existingIds.has(c.id));
-    if (toAdd.length === 0) {
-      didSeedFleetRef.current = true;
-      return;
-    }
-    didSeedFleetRef.current = true;
-    setFleetCars(prev => [...prev, ...toAdd]);
-    toAdd.forEach((car) => {
-      upsertDocument('fleetCars', car.id, car).catch(() => {});
-    });
-  }, [fleetCars]);
+  // 代車マスタは Firestore（設定で保存したマスタ）を正とする。ローカルやデフォルトで上書きしない。
 
   const handleCardDrop = (e, targetTaskId) => {
     e.preventDefault();
@@ -2250,7 +2321,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       draggable
       onDragStart={(e) => handleDragStart(e, task.id)}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
-      onDrop={(e) => handleCardDrop(e, task.id)}
+      onDrop={(e) => {
+        const dragged = tasks.find(t => t.id === draggedTaskId);
+        // 別ステータス（別の列）からドラッグしてきた場合は、
+        // カード上ではなく列全体の onDrop でステータス変更を扱いたいので何もしない。
+        if (!dragged || !dragged.status || dragged.status !== task.status) {
+          return;
+        }
+        handleCardDrop(e, task.id);
+      }}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
       className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
@@ -2447,6 +2526,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const boardColumns = currentBoardId === 'delivery'
     ? getColumnsForBoard(boardColumnsConfig, currentBoardId).filter(c => c.id !== 'delivered_paid')
     : getColumnsForBoard(boardColumnsConfig, currentBoardId);
+
+  // NFCタグ読み込みモードでの移動先候補用: 鈑金ボード or 塗装ボードの列一覧
+  const nfcTargetBoardId = nfcBoardId === 'paint' ? 'paint' : 'body';
+  const nfcBoardColumns = getColumnsForBoard(boardColumnsConfig, nfcTargetBoardId);
   const hideColumnCards = (colId) => currentBoardId === 'delivery' && colId === 'completed';
 
   const getColumnStatuses = (col) => {
@@ -2455,11 +2538,125 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     const list = (Array.isArray(custom) && custom.length) ? custom : (Array.isArray(col.statuses) ? col.statuses : [col.id]);
     return Array.isArray(list) ? list : [col.id];
   };
+  const getColumnStatusesForBoard = (boardId, col) => {
+    if (!col || !col.id) return [];
+    const custom = columnStatuses?.[boardId]?.[col.id];
+    const list = (Array.isArray(custom) && custom.length) ? custom : (Array.isArray(col.statuses) ? col.statuses : [col.id]);
+    return Array.isArray(list) ? list : [col.id];
+  };
   const getColumnPrimaryStatus = (col) => {
     if (!col || !col.id) return 'received';
     const list = getColumnStatuses(col);
     return (list && list[0]) ? list[0] : col.id;
   };
+  const getColumnPrimaryStatusForBoard = (boardId, col) => {
+    if (!col || !col.id) return col.id;
+    const list = getColumnStatusesForBoard(boardId, col);
+    return (list && list[0]) ? list[0] : col.id;
+  };
+
+  const allValidStatuses = useMemo(() => {
+    const set = new Set();
+    BOARD_ORDER.forEach(bid => {
+      const cols = getColumnsForBoard(boardColumnsConfig, bid);
+      (cols || []).forEach(col => {
+        const list = getColumnStatusesForBoard(bid, col);
+        if (Array.isArray(list)) list.forEach(s => set.add(s));
+      });
+    });
+    return set;
+  }, [boardColumnsConfig, columnStatuses]);
+
+  const orphanedTasks = useMemo(() =>
+    tasks.filter(t => t && t.status != null && !allValidStatuses.has(t.status)),
+    [tasks, allValidStatuses]
+  );
+
+  const searchAllTasksByText = useMemo(() => {
+    const q = (orphanSearchText || '').trim().toLowerCase();
+    if (!q) return [];
+    return tasks.filter(t => {
+      if (!t) return false;
+      const num = (t.number || '').toString().toLowerCase();
+      const car = (t.car || '').toString().toLowerCase();
+      const assignee = (t.assignee || '').toString().toLowerCase();
+      return num.includes(q) || car.includes(q) || assignee.includes(q);
+    });
+  }, [tasks, orphanSearchText]);
+
+  const PLANNING_STATUSES = new Set(['unscheduled', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun', 'received']);
+  const unscheduledWithInDate = useMemo(() => {
+    return tasks.filter(t => {
+      if (!t || t.status !== 'unscheduled' || !t.inDate || Number.isNaN(new Date(t.inDate).getTime())) return false;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      if (hist.length === 0) return true;
+      const last = hist[hist.length - 1];
+      const prevStatus = last && last.status ? last.status : '';
+      return PLANNING_STATUSES.has(prevStatus);
+    });
+  }, [tasks]);
+  const unscheduledFromOtherBoard = useMemo(() => {
+    return tasks.filter(t => {
+      if (!t || t.status !== 'unscheduled') return false;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      if (hist.length === 0) return false;
+      const last = hist[hist.length - 1];
+      const prevStatus = last && last.status ? last.status : '';
+      return prevStatus && !PLANNING_STATUSES.has(prevStatus);
+    });
+  }, [tasks]);
+
+  const redistributeUnscheduledByInDate = () => {
+    if (unscheduledWithInDate.length === 0) return;
+    const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    setTasks(prev => prev.map(t => {
+      if (!t || t.status !== 'unscheduled' || !t.inDate) return t;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      if (hist.length > 0) {
+        const prevStatus = hist[hist.length - 1]?.status;
+        if (prevStatus && !PLANNING_STATUSES.has(prevStatus)) return t;
+      }
+      const d = new Date(t.inDate);
+      if (Number.isNaN(d.getTime())) return t;
+      const dayStatus = dayNames[d.getDay()];
+      if (!dayStatus) return t;
+      const updated = transitionTaskStatus(t, dayStatus, { ...t, status: dayStatus });
+      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+      return updated;
+    }));
+    showSettingsToast(`入庫予約の${unscheduledWithInDate.length}件を曜日列へ振り分けました`);
+  };
+
+  const restoreUnscheduledToPreviousColumn = () => {
+    if (unscheduledFromOtherBoard.length === 0) return;
+    const msg = `他ボードから入庫日未定に来たカード ${unscheduledFromOtherBoard.length} 件を、直前の列（鈑金・塗装・納車など）に戻します。よろしいですか？`;
+    if (!window.confirm(msg)) return;
+    setTasks(prev => prev.map(t => {
+      if (!t || t.status !== 'unscheduled') return t;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      if (hist.length === 0) return t;
+      const last = hist[hist.length - 1];
+      const prevStatus = last && last.status ? last.status : null;
+      if (!prevStatus || PLANNING_STATUSES.has(prevStatus)) return t;
+      const newHistory = hist.slice(0, -1);
+      const updated = { ...t, status: prevStatus, statusHistory: newHistory, statusEnteredAt: last.enteredAt || t.statusEnteredAt };
+      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+      return updated;
+    }));
+    showSettingsToast(`他ボードから来た${unscheduledFromOtherBoard.length}件を直前の列に戻しました`);
+  };
+
+  const allColumnOptions = useMemo(() => {
+    const opts = [];
+    BOARD_ORDER.forEach(bid => {
+      const cols = getColumnsForBoard(boardColumnsConfig, bid);
+      (cols || []).forEach(col => {
+        const primary = getColumnPrimaryStatusForBoard(bid, col);
+        opts.push({ boardId: bid, col, primaryStatus: primary, label: `${(BOARDS[bid] && BOARDS[bid].title) || bid} > ${col.name}` });
+      });
+    });
+    return opts;
+  }, [boardColumnsConfig, columnStatuses]);
 
   const getPreviousStatus = (task) => {
     const history = Array.isArray(task.statusHistory) ? task.statusHistory : [];
@@ -2554,14 +2751,23 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
 
   const handleCreateTask = (newTask) => {
     const targetBoardId = currentView === 'gantt' ? 'planning' : currentBoardId;
-    const firstCol = getColumnsForBoard(boardColumnsConfig, targetBoardId)[0];
-    const firstColStatus = firstCol ? getColumnPrimaryStatus(firstCol) : 'received';
+    const cols = getColumnsForBoard(boardColumnsConfig, targetBoardId);
+    const firstCol = cols[0];
+    let initialStatus = firstCol ? getColumnPrimaryStatus(firstCol) : 'received';
+    if (targetBoardId === 'planning' && newTask.inDate) {
+      const d = new Date(newTask.inDate);
+      if (!Number.isNaN(d.getTime())) {
+        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const dayStatus = dayNames[d.getDay()];
+        if (dayStatus) initialStatus = dayStatus;
+      }
+    }
     const newId = `t${Date.now()}`;
     const nowIso = new Date().toISOString();
     const taskWithId = {
       ...newTask,
       id: newId,
-      status: firstColStatus,
+      status: initialStatus,
       statusEnteredAt: nowIso,
       statusHistory: [],
       attachments: Array.isArray(newTask.attachments) ? newTask.attachments : []
@@ -2694,6 +2900,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
           {calendarToast}
         </div>
       )}
+      {settingsSaveToast && (
+        <div className="absolute left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium shadow-lg animate-fade-in" style={{ top: 'calc(3.5rem + env(safe-area-inset-top))' }}>
+          {settingsSaveToast}
+        </div>
+      )}
       <header className="bg-white border-b border-gray-200 flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shadow-sm z-30 min-h-[3rem]" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         <div className="flex-1 min-w-0" aria-hidden />
         <div className="flex items-center gap-1 sm:gap-3 justify-center relative min-w-0 flex-shrink" ref={headerMenuRef}>
@@ -2710,6 +2921,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             {currentView === 'board' && currentBoardId === 'main' && <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </button>
           <Button onClick={() => setIsCreateModalOpen(true)} className="!px-2 sm:!px-3 !py-1.5 !text-xs sm:!text-sm shrink-0"><span className="hidden sm:inline">カード作成</span><span className="sm:hidden">作成</span></Button>
+          <button type="button" onClick={() => setIsCalendarLinkModalOpen(true)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700 flex-shrink-0" title="Googleカレンダーから入庫予定作成">
+            <Calendar className="w-5 h-5" />
+          </button>
           {isHeaderMenuOpen && (
             <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-80 bg-white border border-gray-200 shadow-xl rounded-md py-2 z-50">
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">最近のボード</div>
@@ -2755,21 +2969,21 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     <label className="block text-gray-600 mb-1">受付担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.receptionStaff} onChange={(e) => setSearchFilters(f => ({ ...f, receptionStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'reception').map(n => <option key={n} value={n}>{n}</option>)}
+                      {((staffOptionsConfig || getStaffOptionsConfig()).reception || []).filter(Boolean).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">鈑金担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.bodyStaff} onChange={(e) => setSearchFilters(f => ({ ...f, bodyStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'body').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
+                      {((staffOptionsConfig || getStaffOptionsConfig()).body || []).filter(Boolean).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">塗装担当者</label>
                     <select className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white" value={searchFilters.paintStaff} onChange={(e) => setSearchFilters(f => ({ ...f, paintStaff: e.target.value }))}>
                       <option value="">すべて</option>
-                      {getStaffOptionsWithCurrentUser(currentUser, staffOptionsConfig || getStaffOptionsConfig(), 'paint').filter(n => n !== currentUser).map(n => <option key={n} value={n}>{n}</option>)}
+                      {((staffOptionsConfig || getStaffOptionsConfig()).paint || []).filter(Boolean).map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
                   <div>
@@ -2802,14 +3016,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
               type="button"
               onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
               className="group relative flex flex-col items-center w-full rounded hover:bg-gray-50 focus:outline-none"
-              title={currentUser || 'アカウント'}
+              title="アカウント"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white flex-shrink-0" aria-hidden />
-              {currentUser && (
-                <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1.5 bg-gray-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-                  {currentUser}
-                </span>
-              )}
             </button>
             {isAccountMenuOpen && typeof onLogout === 'function' && (
               <div className="absolute left-full top-0 ml-2 w-36 bg-white border border-gray-200 shadow-lg rounded-md py-1 z-50">
@@ -2836,69 +3045,98 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
           ) : (
             <>
               <div className={`flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${selectedTaskId && !isNfcMode ? 'w-[calc(100%-450px)] border-r border-gray-200' : 'w-full'}`}>
-                <div className="flex-1 min-h-0 p-4 pt-4 bg-white overflow-x-auto overflow-y-auto">
-                  <div className="flex gap-2 h-full w-full min-w-0">
-                    {isNfcMode && (
-                      <div className="mb-3 w-full min-w-0 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-1 text-xs text-gray-800">
-                        {selectedTask ? (
-                          <>
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-amber-900">NFCモード: 列を選んで移動</span>
-                                <span className="px-1.5 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] text-amber-700">
-                                  {selectedTask.assignee} / {selectedTask.car} {selectedTask.number}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-gray-500">対象ボード:</span>
-                                <select
-                                  className="border border-amber-300 rounded px-2 py-0.5 bg-white text-[10px]"
-                                  value={nfcBoardId}
-                                  onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
-                                >
-                                  <option value="body">鈑金ボード</option>
-                                  <option value="paint">塗装ボード</option>
-                                </select>
-                              </div>
+                <div className="flex-1 min-h-0 p-4 pt-4 bg-white overflow-x-auto overflow-y-auto flex flex-col gap-3">
+                  {isNfcMode && (
+                    <div className="flex-shrink-0 w-full px-4 py-3 rounded-md bg-amber-50 border border-amber-200 flex flex-col gap-2 text-xl text-gray-800">
+                      {selectedTask ? (
+                        <>
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-4 min-w-0">
+                              <span className="font-semibold text-amber-900 whitespace-nowrap text-2xl">NFCモード: 列を選んで移動</span>
+                              <span className="px-3 py-1.5 rounded-full bg-white border border-amber-200 text-base text-amber-700">
+                                {selectedTask.assignee} / {selectedTask.car} {selectedTask.number}
+                              </span>
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              <span className="text-[11px] text-gray-700">
-                                現在の列:{' '}
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl text-gray-800 font-semibold">対象ボード:</span>
+                              <select
+                                className="border border-amber-300 rounded px-4 py-2.5 bg-white text-xl font-medium"
+                                value={nfcBoardId}
+                                onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
+                              >
+                                <option value="body">鈑金ボード</option>
+                                <option value="paint">塗装ボード</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-4">
+                            <span className="text-xl text-gray-900 font-semibold">
+                              現在の列:{' '}
+                              <span className="text-xl text-blue-700 font-semibold">
                                 {boardColumns.find(col => getColumnStatuses(col).includes(selectedTask.status))?.name || '判別できません'}
                               </span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-[11px] text-gray-700">移動先:</span>
-                                <select
-                                  className="border border-amber-300 rounded px-2 py-1 bg-white text-[11px]"
-                                  defaultValue=""
-                                  onChange={(e) => {
-                                    const colId = e.target.value;
-                                    if (!colId) return;
-                                    const col = boardColumns.find(c => c.id === colId);
-                                    if (!col) return;
-                                    const primaryStatus = getColumnPrimaryStatus(col);
-                                    if (!primaryStatus || primaryStatus === selectedTask.status) return;
-                                    handleTaskUpdate({ ...selectedTask, status: primaryStatus });
-                                    e.target.value = '';
-                                  }}
-                                >
-                                  <option value="">列を選択</option>
-                                  {boardColumns.map(col => (
-                                    <option key={col.id} value={col.id}>
-                                      {col.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl text-gray-900 font-semibold">移動先:</span>
+                              <select
+                                className="border border-amber-300 rounded px-4 py-3 bg-white text-xl font-medium"
+                                defaultValue=""
+                                onChange={(e) => {
+                                  const colId = e.target.value;
+                                  if (!colId) return;
+                                  const col = nfcBoardColumns.find(c => c.id === colId);
+                                  if (!col) return;
+                                  const primaryStatus = getColumnPrimaryStatus(col);
+                                  if (!primaryStatus || primaryStatus === selectedTask.status) return;
+                                  handleTaskUpdate({ ...selectedTask, status: primaryStatus });
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">列を選択</option>
+                                {nfcBoardColumns.map(col => (
+                                  <option key={col.id} value={col.id}>
+                                    {col.name}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
-                          </>
-                        ) : (
-                          <div className="text-[11px] text-red-700">
-                            このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
                           </div>
+                        </>
+                      ) : (
+                        <div className="text-base text-red-700">
+                          このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {currentBoardId === 'planning' && (unscheduledWithInDate.length > 0 || unscheduledFromOtherBoard.length > 0) && (
+                    <div className="flex-shrink-0 flex flex-col gap-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-sm">
+                      <p className="text-amber-800">
+                        入庫日未定の列に、他ボードから来たカードや入庫日入力済みのカードがあります。列だけ元に戻せます（ナンバーなど項目が消えている場合は Firestore のバックアップやドキュメント履歴での復元が必要です）。
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {unscheduledFromOtherBoard.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={restoreUnscheduledToPreviousColumn}
+                            className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                          >
+                            他ボードから来たカードを直前の列に戻す（{unscheduledFromOtherBoard.length}件）
+                          </button>
+                        )}
+                        {unscheduledWithInDate.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={redistributeUnscheduledByInDate}
+                            className="px-3 py-1.5 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
+                          >
+                            入庫日に合わせて曜日列へ振り分け（{unscheduledWithInDate.length}件）
+                          </button>
                         )}
                       </div>
-                    )}
+                    </div>
+                  )}
+                  <div className="flex gap-2 h-full min-h-0 w-full min-w-0 flex-1 overflow-x-auto">
                     {boardColumns.map(col => {
                       const columnStatuses = getColumnStatuses(col);
                       const rawColumnTasks = hideColumnCards(col.id)
@@ -3065,6 +3303,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     onClose={() => setSelectedTaskId(null)}
                     onUpdate={handleTaskUpdate}
                     onMasterDelete={handleMasterDeleteTask}
+                    currentBoardId={currentBoardId}
+                    boardColumns={boardColumns}
+                    getColumnStatuses={getColumnStatuses}
+                    getColumnPrimaryStatus={getColumnPrimaryStatus}
+                    moveTargetOptions={allColumnOptions}
                   />
                 </div>
               )}
@@ -3164,6 +3407,97 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                         <Settings className="w-4 h-4" />
                         リンクを設定
                       </button>
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                        {orphanedTasks.length > 0 && <AlertTriangle className="w-4 h-4 text-amber-600" />}
+                        表示外のカード（リンクの狭間）
+                      </h3>
+                      <p className="text-sm text-gray-500 mb-3">
+                        ボード間リンクを変更した際、どの列にも属さないステータスになったカードは看板に表示されません。ここに表示されたカードを「移動先」で列を選んで復帰できます。
+                      </p>
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">ナンバー・車種・お客様名で全カードを検索（例: 5402, プリウス）</label>
+                        <input
+                          type="text"
+                          className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                          placeholder="5402 または プリウス など"
+                          value={orphanSearchText}
+                          onChange={(e) => setOrphanSearchText(e.target.value)}
+                        />
+                      </div>
+                      {orphanSearchText.trim() && (
+                        <div className="mb-3 p-3 rounded-lg border border-blue-200 bg-blue-50/50">
+                          <p className="text-sm font-medium text-gray-800 mb-2">該当する全カード（{searchAllTasksByText.length}件）</p>
+                          {searchAllTasksByText.length === 0 ? (
+                            <p className="text-sm text-gray-600">該当するカードはありません。別のキーワードで試すか、Firestore の boards/main/tasks で該当ドキュメントが存在するか確認してください。</p>
+                          ) : (
+                            <ul className="space-y-2 text-sm">
+                              {searchAllTasksByText.map(t => {
+                                const isOrphan = t && t.status != null && !allValidStatuses.has(t.status);
+                                const colName = !isOrphan && boardColumns ? (() => {
+                                  const bid = BOARD_ORDER.find(bid => {
+                                    const cols = getColumnsForBoard(boardColumnsConfig, bid);
+                                    return (cols || []).some(c => getColumnStatusesForBoard(bid, c).includes(t.status));
+                                  });
+                                  const cols = bid ? getColumnsForBoard(boardColumnsConfig, bid) : [];
+                                  const col = (cols || []).find(c => getColumnStatusesForBoard(bid, c).includes(t.status));
+                                  return col ? `${(BOARDS[bid] && BOARDS[bid].title) || bid} > ${col.name}` : t.status;
+                                })() : null;
+                                return (
+                                  <li key={t.id} className="flex flex-wrap items-center gap-2">
+                                    <span className="font-medium">{t.assignee || '—'} / {t.car || '—'} {t.number || '—'}</span>
+                                    <span className="text-xs text-gray-600">{isOrphan ? '（表示外）' : `（${colName}）`}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      {orphanedTasks.length === 0 ? (
+                        <p className="text-sm text-gray-600 py-2">表示外のカードはありません。</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-sm font-medium text-amber-700">{orphanedTasks.length}件のカードがどの列にも表示されていません</p>
+                          {orphanedTasks.map(task => {
+                            const selectedStatus = orphanRecoverySelection[task.id] ?? allColumnOptions[0]?.primaryStatus ?? '';
+                            return (
+                              <div key={task.id} className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 space-y-2">
+                                <div className="text-sm font-medium text-gray-800">
+                                  {task.assignee || '（未設定）'} / {task.car || '（車種）'} {task.number || '（ナンバー）'}
+                                </div>
+                                <div className="text-xs text-gray-600">現在のステータス: {task.status || 'なし'}</div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <label className="text-xs text-gray-600">移動先:</label>
+                                  <select
+                                    className="border border-gray-300 rounded px-2 py-1.5 text-sm bg-white min-w-[200px]"
+                                    value={selectedStatus}
+                                    onChange={(e) => setOrphanRecoverySelection(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                  >
+                                    {allColumnOptions.map((opt, i) => (
+                                      <option key={i} value={opt.primaryStatus}>{opt.label}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const status = orphanRecoverySelection[task.id] ?? allColumnOptions[0]?.primaryStatus;
+                                      if (status) {
+                                        handleTaskUpdate({ ...task, status });
+                                        setOrphanRecoverySelection(prev => { const next = { ...prev }; delete next[task.id]; return next; });
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                                  >
+                                    この列に移動
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </section>
                     <section>
                       <h3 className="text-sm font-semibold text-gray-700 mb-2">代車マスタ設定</h3>
@@ -3725,8 +4059,12 @@ function Accordion({ title, children, defaultOpen = true }) {
   );
 }
 
-function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete }) {
+const MASTER_PASSCODE = '0514';
+
+function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [] }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
+  const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
+  const [showPrevNextMove, setShowPrevNextMove] = useState(false);
   if (!task) return null;
   const issueKey = `#${task.id.replace(/\D/g, '') || Math.floor(Math.random()*1000) + 2000}`;
   const dots = task.dots || ['white', 'white', 'white', 'white'];
@@ -3773,8 +4111,14 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
              <button
                type="button"
                onClick={() => {
-                 const base = typeof window !== 'undefined' ? window.location.origin + (import.meta.env.BASE_URL || '/') : '';
-                 const url = `${base.replace(/\/+$/, '')}/?nfcStandalone=1&nfcTaskId=${task.id}`;
+                 let base = '';
+                 if (typeof window !== 'undefined') {
+                   const path = window.location.pathname || '';
+                   if (path.indexOf('/kiyota') === 0) base = window.location.origin + '/kiyota';
+                   else base = window.location.origin + (import.meta.env.BASE_URL || '/');
+                 }
+                 base = base.replace(/\/+$/, '');
+                 const url = `${base}/?nfcStandalone=1&nfcTaskId=${task.id}`;
                  if (navigator.clipboard && navigator.clipboard.writeText) {
                    navigator.clipboard.writeText(url).then(() => {
                      alert('このカード用のNFC URLをコピーしました。\nNFC書き込みアプリに貼り付けてください。\n\n' + url);
@@ -4092,6 +4436,104 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                   title="PDFまたは画像を選択"
                 />
               </div>
+              {/* 移動先を指定（どのボードのどの列に移動するか） */}
+              {Array.isArray(moveTargetOptions) && moveTargetOptions.length > 0 && onUpdate && (
+                <div className="pt-3 border-t border-gray-200 space-y-2">
+                  <div className="text-sm font-semibold text-gray-700">移動先を指定</div>
+                  <p className="text-xs text-gray-500">ボード・列を選んで「この列に移動」でカードを移動できます（迷子列から復帰するときなど）。</p>
+                  <select
+                    value={selectedMoveTarget}
+                    onChange={(e) => setSelectedMoveTarget(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">ボード・列を選択</option>
+                    {moveTargetOptions.map((opt, i) => (
+                      <option key={i} value={opt.primaryStatus}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedMoveTarget || selectedMoveTarget === task.status}
+                    onClick={() => {
+                      if (!selectedMoveTarget || selectedMoveTarget === task.status) return;
+                      onUpdate({ ...task, status: selectedMoveTarget });
+                      setSelectedMoveTarget('');
+                    }}
+                    className="w-full mt-1 inline-flex items-center justify-center px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm"
+                  >
+                    この列に移動
+                  </button>
+                </div>
+              )}
+
+              {/* 前後列へ移動（同一パスコード） */}
+              {currentBoardId && Array.isArray(boardColumns) && boardColumns.length > 0 && typeof getColumnStatuses === 'function' && typeof getColumnPrimaryStatus === 'function' && onUpdate && (
+                <div className="pt-3 border-t border-gray-200 space-y-2">
+                  {!showPrevNextMove ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = window.prompt('前後列へ移動するためのパスコードを入力してください。');
+                        if (code === null) return;
+                        if (code !== MASTER_PASSCODE) {
+                          window.alert('パスコードが違います。');
+                          return;
+                        }
+                        setShowPrevNextMove(true);
+                      }}
+                      className="w-full mt-1 inline-flex items-center justify-center px-3 py-2 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold shadow-sm"
+                    >
+                      前後列へ移動
+                    </button>
+                  ) : (
+                    (() => {
+                      const idx = boardColumns.findIndex((col) => {
+                        const statuses = getColumnStatuses(col);
+                        return Array.isArray(statuses) && statuses.includes(task.status);
+                      });
+                      const prevCol = idx > 0 ? boardColumns[idx - 1] : null;
+                      const nextCol = idx >= 0 && idx < boardColumns.length - 1 ? boardColumns[idx + 1] : null;
+                      const prevStatus = prevCol ? getColumnPrimaryStatus(prevCol) : null;
+                      const nextStatus = nextCol ? getColumnPrimaryStatus(nextCol) : null;
+                      return (
+                        <div className="space-y-2">
+                          <div className="text-xs text-gray-600 font-medium">現在のボード内で前後の列へ移動</div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={!prevStatus}
+                              onClick={() => {
+                                if (!prevStatus) return;
+                                onUpdate({ ...task, status: prevStatus });
+                                setShowPrevNextMove(false);
+                              }}
+                              className="flex-1 px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 text-sm font-medium"
+                            >
+                              前の列へ
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!nextStatus}
+                              onClick={() => {
+                                if (!nextStatus) return;
+                                onUpdate({ ...task, status: nextStatus });
+                                setShowPrevNextMove(false);
+                              }}
+                              className="flex-1 px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 text-sm font-medium"
+                            >
+                              次の列へ
+                            </button>
+                          </div>
+                          <button type="button" onClick={() => setShowPrevNextMove(false)} className="text-xs text-gray-500 hover:underline">
+                            閉じる
+                          </button>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              )}
+
               {onMasterDelete && (
                 <div className="pt-2">
                   <button
@@ -4099,7 +4541,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                     onClick={() => {
                       const code = window.prompt('マスター削除用のパスコードを入力してください。');
                       if (code === null) return;
-                      if (code !== '0514') {
+                      if (code !== MASTER_PASSCODE) {
                         window.alert('パスコードが違います。');
                         return;
                       }
@@ -4274,13 +4716,13 @@ export default function App() {
   return (
     <>
       {isDemoMode && (
-        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow" style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}>
-          デモ環境 — 表示データは実運用データと共有されません
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-400 text-gray-900 text-center py-1.5 text-sm font-medium shadow" style={{ paddingTop: 'max(0.375rem, env(safe-area-inset-top))' }}>
+          デモ用のデモ版です
         </div>
       )}
       <div style={isDemoMode ? { paddingTop: 'calc(2.5rem + env(safe-area-inset-top))' } : undefined}>
         {isNfcStandalone ? (
-          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} />
+          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         ) : (
           <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         )}
