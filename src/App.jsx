@@ -450,6 +450,37 @@ const shouldSyncToSheetOnStatusChange = (prevStatus, nextStatus) => {
   return prevStatus !== 'received' && nextStatus === 'received';
 };
 
+// ステータス変更時の共通ロガー
+// prevStatus → newStatus への移動と、そのときの操作ユーザー（表示名）を履歴に残す
+function transitionTaskStatusWithOperator(task, newStatus, extra = {}, operatorName = null) {
+  const nowIso = new Date().toISOString();
+  const prevStatus = task.status;
+  const prevEnteredAt = task.statusEnteredAt || nowIso;
+  let history = Array.isArray(task.statusHistory) ? [...task.statusHistory] : [];
+
+  if (prevStatus) {
+    const entry = {
+      status: prevStatus,
+      enteredAt: prevEnteredAt,
+      exitedAt: nowIso,
+      nextStatus: newStatus
+    };
+    if (operatorName) entry.byUser = operatorName;
+    history = [...history, entry];
+  }
+
+  // 内部用メタデータはフィールドに残さない
+  const { _operatorName, _operatorReason, ...restExtra } = extra || {};
+
+  return {
+    ...task,
+    ...restExtra,
+    status: newStatus,
+    statusEnteredAt: nowIso,
+    statusHistory: history
+  };
+}
+
 function getStaffOptionsConfig() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STAFF_OPTIONS_KEY) : null;
@@ -1729,7 +1760,7 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
     setError('');
     setSuccess('');
     try {
-      const updated = transitionTaskStatus(task, primaryStatus);
+      const updated = transitionTaskStatusWithOperator(task, primaryStatus, {}, currentUser || null);
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       if (isFirebaseConfigured()) {
         await upsertDocument('boards/main/tasks', updated.id, updated);
@@ -2703,14 +2734,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   };
 
   const transitionTaskStatus = (task, newStatus, extra = {}) => {
-    const nowIso = new Date().toISOString();
-    const prevStatus = task.status;
-    const prevEnteredAt = task.statusEnteredAt || nowIso;
-    let history = Array.isArray(task.statusHistory) ? [...task.statusHistory] : [];
-    if (prevStatus) {
-      history = [...history, { status: prevStatus, enteredAt: prevEnteredAt, exitedAt: nowIso }];
-    }
-    return { ...task, ...extra, status: newStatus, statusEnteredAt: nowIso, statusHistory: history };
+    const operatorName =
+      (extra && typeof extra._operatorName === 'string' && extra._operatorName) ||
+      (currentUser && String(currentUser)) ||
+      null;
+    return transitionTaskStatusWithOperator(task, newStatus, extra, operatorName);
   };
 
   const handleDragStart = (e, id) => { setDraggedTaskId(id); e.dataTransfer.effectAllowed = 'move'; };
@@ -4573,6 +4601,10 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSignInLoading, setIsSignInLoading] = useState(false);
   const [nfcTaskId, setNfcTaskId] = useState(null);
+  const isDemoLoginBypass =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.includes('/demodeta/demo') ||
+      window.location.pathname.includes('/kiyota/demo'));
   const isNfcStandalone =
     typeof window !== 'undefined' &&
     (() => {
@@ -4615,6 +4647,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // デモ用URL（/demodeta/demo または /kiyota/demo）ではログインなしで利用できるようにする
+    if (isDemoLoginBypass) {
+      setCurrentUser('デモユーザー');
+      setIsLoggedIn(true);
+      setIsAuthLoading(false);
+      return;
+    }
+
     // ローカル開発環境（localhost等）の場合は Firebase 認証を使わず、自動的にログイン扱いにする
     const isLocalHost =
       typeof window !== 'undefined' &&
