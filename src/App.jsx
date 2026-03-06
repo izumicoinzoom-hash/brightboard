@@ -2605,7 +2605,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       const hist = Array.isArray(task.statusHistory) ? task.statusHistory : [];
       hist.forEach((h, index) => {
         const fromStatus = h && h.status ? h.status : null;
-        const toStatus = h && h.nextStatus ? h.nextStatus : null;
+        let toStatus = h && h.nextStatus ? h.nextStatus : null;
+        // 過去データなどで nextStatus が無い場合は、次の履歴や現在の status から推定する
+        if (!toStatus) {
+          const nextHist = hist[index + 1];
+          if (nextHist && nextHist.status && nextHist.status !== fromStatus) {
+            toStatus = nextHist.status;
+          } else if (!nextHist && task.status && task.status !== fromStatus) {
+            toStatus = task.status;
+          }
+        }
         const byUser = h && typeof h.byUser === 'string' ? h.byUser : null;
         const enteredAt = h && h.enteredAt ? h.enteredAt : null;
         const exitedAt = h && h.exitedAt ? h.exitedAt : null;
