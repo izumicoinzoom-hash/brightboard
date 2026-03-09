@@ -2976,7 +2976,21 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         </div>
       )}
       <header className="bg-white border-b border-gray-200 flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shadow-sm z-30 min-h-[3rem]" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
-        <div className="flex-1 min-w-0" aria-hidden />
+        <div className="flex-1 min-w-0 flex items-center justify-start">
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              const url = 'https://translate.google.com/translate?hl=id&sl=ja&tl=id&u=' + encodeURIComponent(window.location.href);
+              window.open(url, '_blank', 'noopener,noreferrer');
+            }}
+            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs sm:text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 font-medium transition shrink-0"
+            title="Terjemahkan ke Bahasa Indonesia（インドネシア語で表示）"
+          >
+            <span aria-hidden>🇮🇩</span>
+            <span className="hidden sm:inline">Bahasa Indonesia</span>
+          </a>
+        </div>
         <div className="flex items-center gap-1 sm:gap-3 justify-center relative min-w-0 flex-shrink" ref={headerMenuRef}>
           <h1 className="text-sm sm:text-lg font-bold text-gray-800 truncate hidden sm:block" style={{ maxWidth: '8rem' }}>{APP_NAME}</h1>
           <h1 className="text-sm font-bold text-gray-800 truncate sm:hidden" style={{ maxWidth: '2.5rem' }}>BB</h1>
