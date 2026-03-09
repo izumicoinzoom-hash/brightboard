@@ -1715,10 +1715,12 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState(''); // 'success' | 'error' | ''
 
-  // 送り先候補: 過去ログインユーザーがあればそれを使い、なければ VITE_ALLOWED_EMAILS にフォールバック
-  const recipientOptions = pastLoginUsers.length > 0
-    ? pastLoginUsers
-    : (Array.isArray(allowedEmails) ? allowedEmails : []).map((email) => ({ email: email.toLowerCase(), displayName: email }));
+  // 送り先候補: 過去ログインユーザーと VITE_ALLOWED_EMAILS をマージ（重複はemailで除外、表示名は過去ログイン優先）
+  const allowedList = (Array.isArray(allowedEmails) ? allowedEmails : []).map((email) => ({ email: email.toLowerCase(), displayName: email }));
+  const byEmail = new Map();
+  pastLoginUsers.forEach((u) => byEmail.set((u.email || '').toLowerCase(), u));
+  allowedList.forEach((u) => { if (!byEmail.has(u.email)) byEmail.set(u.email, u); });
+  const recipientOptions = Array.from(byEmail.values()).filter((u) => (u.email || '').trim());
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1783,7 +1785,7 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
               ))}
             </select>
             {filteredOptions.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">過去にログインしたユーザーがまだいません。誰かが一度ログインすると送り先に表示されます。VITE_ALLOWED_EMAILS が設定されていればその一覧が表示されます。</p>
+              <p className="text-xs text-amber-600 mt-1">送り先がありません。VITE_ALLOWED_EMAILS にメールアドレスを設定するか、PCでGoogleログインしたユーザーが1人以上いると送り先に表示されます。</p>
             )}
           </div>
           <div>
@@ -3331,9 +3333,17 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           <div className="relative flex flex-col items-center" ref={accountMenuRef}>
             <button
               type="button"
-              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+              onClick={() => {
+                if (isViewOnly) {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('forceLogin', '1');
+                  window.location.href = url.toString();
+                  return;
+                }
+                setIsAccountMenuOpen(!isAccountMenuOpen);
+              }}
               className="group relative flex flex-col items-center w-full rounded hover:bg-gray-50 focus:outline-none"
-              title="アカウント"
+              title={isViewOnly ? 'ログインする' : 'アカウント'}
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white flex-shrink-0" aria-hidden />
             </button>
@@ -5059,7 +5069,9 @@ export default function App() {
     }
 
     // スマートフォン・タブレットの場合は Google ログインを免除し、そのまま利用可能にする（PC のみログイン必須）
-    if (isMobileOrNarrow()) {
+    // URL に forceLogin=1 がある場合はログイン画面を表示（左サイドのアカウントアイコンから「ログイン」を選んだ場合）
+    const forceLogin = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('forceLogin') === '1';
+    if (isMobileOrNarrow() && !forceLogin) {
       setCurrentUser('現場端末');
       setCurrentUserEmail('');
       setIsLoggedIn(true);
