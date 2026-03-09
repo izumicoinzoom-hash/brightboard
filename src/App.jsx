@@ -418,6 +418,52 @@ const BOARDS = {
   orphan: { id: 'orphan', title: '迷子カード移動ボード', columns: [ { id: 'orphan', name: '迷子列' } ] }
 };
 
+// インドネシア語: ボード名・列名のみ（軽量表示切替用）
+const LANG_KEY = 'brightboard_display_lang';
+const BOARD_TITLES_ID = {
+  planning: 'Reservasi Masuk (Perencanaan)',
+  main: 'Manajemen Proses (Semua Pekerjaan)',
+  body: 'Manajemen Body (Bodyshop)',
+  paint: 'Manajemen Cat (Paint)',
+  delivery: 'Manajemen Pengiriman',
+  orphan: 'Papan Kartu Tersesat'
+};
+const COLUMN_NAMES_ID = {
+  unscheduled: 'Belum Dijadwalkan',
+  mon: 'Sen', tue: 'Sel', wed: 'Rab', thu: 'Kam', fri: 'Jum', sat: 'Sab', sun: 'Min',
+  received: 'Sudah Masuk',
+  b_wait: 'Menunggu B',
+  b_doing: 'Proses B',
+  b_done_p_wait: 'B Selesai, Menunggu P',
+  p_only: 'P Saja',
+  prep_paint: 'Persiapan & Cat',
+  assembly: 'Perakitan',
+  polish: 'Poles',
+  polishing: 'Poles',
+  completed: 'Pekerjaan Selesai',
+  delivery_today: 'Kirim Hari Ini',
+  delivery_wait: 'Menunggu Pengiriman',
+  delivered_unpaid: 'Sudah Kirim - Menunggu Bayar',
+  delivered_paid: 'Sudah Kirim - Sudah Bayar',
+  prep: 'Persiapan',
+  prep_done: 'Persiapan Selesai (Menunggu P)',
+  painting: 'Cat',
+  assembly_wait: 'Menunggu Perakitan',
+  polish_done: 'Poles Selesai',
+  assembly_done_both: 'Perakitan Selesai (Tanpa Poles & Selesai)',
+  assembly_done_nuri: 'Perakitan Selesai (Tanpa Poles)',
+  orphan: 'Kolom Tersesat'
+};
+function getBoardTitle(boardId, useId) {
+  if (!useId || !boardId) return (BOARDS[boardId] && BOARDS[boardId].title) || boardId;
+  return BOARD_TITLES_ID[boardId] || (BOARDS[boardId] && BOARDS[boardId].title) || boardId;
+}
+function getColumnName(col, useId) {
+  if (!col) return '';
+  if (!useId) return col.name || col.id || '';
+  return COLUMN_NAMES_ID[col.id] || col.name || col.id || '';
+}
+
 const LINK_CONFIG_KEY = 'brightboard_column_statuses';
 const CALENDAR_PENDING_KEY = 'brightboard_calendar_pending';
 const NFC_PENDING_KEY = 'brightboard_nfc_task_id';
@@ -1683,6 +1729,14 @@ function CalendarLinkModal({ onClose }) {
 
 // --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
 function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null }) {
+  const useIndonesian = (() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('lang') === 'id') return true;
+      return localStorage.getItem(LANG_KEY) === 'id';
+    } catch { return false; }
+  })();
   const [tasks, setTasks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1830,17 +1884,17 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
                 </div>
               )}
               <div className="flex justify-between items-center gap-4">
-                <span className="text-2xl text-gray-800 font-semibold">対象ボード</span>
+                <span className="text-2xl text-gray-800 font-semibold">{useIndonesian ? 'Papan Tujuan' : '対象ボード'}</span>
                 <select
                   className="border border-gray-300 rounded px-5 py-4 text-2xl bg-white font-medium"
                   value={nfcBoardId}
                   onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
                 >
-                  <option value="body">鈑金ボード</option>
-                  <option value="paint">塗装ボード</option>
+                  <option value="body">{useIndonesian ? 'Bodyshop' : '鈑金ボード'}</option>
+                  <option value="paint">{useIndonesian ? 'Paint' : '塗装ボード'}</option>
                 </select>
               </div>
-              <div className="text-sm text-gray-600 mb-1">対象カード</div>
+              <div className="text-sm text-gray-600 mb-1">{useIndonesian ? 'Kartu Tujuan' : '対象カード'}</div>
               <div className="px-3 py-2 rounded bg-gray-50 border border-gray-200 text-base">
                 <div className="font-semibold text-gray-800 mb-1">
                   {task.assignee || '担当未設定'} / {task.car || '車種未設定'} {task.number || ''}
@@ -1852,24 +1906,24 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
 
               <div className="space-y-3 text-xl">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-800 text-xl font-semibold">現在の列</span>
+                  <span className="text-gray-800 text-xl font-semibold">{useIndonesian ? 'Kolom Saat Ini' : '現在の列'}</span>
                   <span className="px-4 py-2 rounded-full bg-blue-50 border border-blue-100 text-xl text-blue-700 font-semibold">
                     {currentColumn
-                      ? currentColumn.name
-                      : '判別できません'}
+                      ? getColumnName(currentColumn, useIndonesian)
+                      : (useIndonesian ? 'Tidak dapat menentukan' : '判別できません')}
                   </span>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-xl text-gray-800 mb-3 font-semibold">移動先の列</label>
+                  <label className="block text-xl text-gray-800 mb-3 font-semibold">{useIndonesian ? 'Kolom Tujuan' : '移動先の列'}</label>
                   <select
                     className="w-full border border-gray-300 rounded px-5 py-4 text-2xl bg-white font-medium"
                     value={nextColumnId}
                     onChange={(e) => setNextColumnId(e.target.value)}
                   >
-                    <option value="">列を選択してください</option>
+                    <option value="">{useIndonesian ? 'Pilih kolom' : '列を選択してください'}</option>
                     {boardColumns.map((col) => (
                       <option key={col.id} value={col.id}>
-                        {col.name}
+                        {getColumnName(col, useIndonesian)}
                       </option>
                     ))}
                   </select>
@@ -1882,7 +1936,7 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
                 disabled={isSaving || !nextColumnId}
                 className="w-full mt-6 px-6 py-5 rounded-xl bg-blue-600 text-white text-2xl font-bold tracking-wide hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {isSaving ? '列を移動中...' : 'この列に移動する'}
+                {isSaving ? (useIndonesian ? 'Memindahkan...' : '列を移動中...') : (useIndonesian ? 'Pindah ke kolom ini' : 'この列に移動する')}
               </button>
             </>
           )}
@@ -2031,6 +2085,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   const [isFleetSettingsOpen, setIsFleetSettingsOpen] = useState(false);
   const [isColumnEditOpen, setIsColumnEditOpen] = useState(false);
   const [isStaffOptionsOpen, setIsStaffOptionsOpen] = useState(false);
+  const [useIndonesian, setUseIndonesian] = useState(() => {
+    try {
+      return (typeof localStorage !== 'undefined' && localStorage.getItem(LANG_KEY) === 'id');
+    } catch { return false; }
+  });
+  const toggleIndonesian = () => {
+    const next = !useIndonesian;
+    setUseIndonesian(next);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(LANG_KEY, next ? 'id' : 'ja');
+    } catch (_) {}
+  };
   const [orphanRecoverySelection, setOrphanRecoverySelection] = useState({});
   const [orphanSearchText, setOrphanSearchText] = useState('');
   const [boardColumnsConfig, setBoardColumnsConfig] = useState(() => getBoardColumnsConfig());
@@ -2725,11 +2791,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       const cols = getColumnsForBoard(boardColumnsConfig, bid);
       (cols || []).forEach(col => {
         const primary = getColumnPrimaryStatusForBoard(bid, col);
-        opts.push({ boardId: bid, col, primaryStatus: primary, label: `${(BOARDS[bid] && BOARDS[bid].title) || bid} > ${col.name}` });
+        opts.push({ boardId: bid, col, primaryStatus: primary, label: `${getBoardTitle(bid, useIndonesian)} > ${getColumnName(col, useIndonesian)}` });
       });
     });
     return opts;
-  }, [boardColumnsConfig, columnStatuses]);
+  }, [boardColumnsConfig, columnStatuses, useIndonesian]);
 
   const getPreviousStatus = (task) => {
     const history = Array.isArray(task.statusHistory) ? task.statusHistory : [];
@@ -2977,19 +3043,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       )}
       <header className="bg-white border-b border-gray-200 flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shadow-sm z-30 min-h-[3rem]" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         <div className="flex-1 min-w-0 flex items-center justify-start">
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              const url = 'https://translate.google.com/translate?hl=id&sl=ja&tl=id&u=' + encodeURIComponent(window.location.href);
-              window.open(url, '_blank', 'noopener,noreferrer');
-            }}
-            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs sm:text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 font-medium transition shrink-0"
-            title="Terjemahkan ke Bahasa Indonesia（インドネシア語で表示）"
+          <button
+            type="button"
+            onClick={toggleIndonesian}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs sm:text-sm font-medium transition shrink-0 ${useIndonesian ? 'bg-amber-100 text-amber-800' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
+            title={useIndonesian ? '日本語に切り替え（列・ボード名）' : '列名・ボード名をインドネシア語で表示'}
           >
             <span aria-hidden>🇮🇩</span>
-            <span className="hidden sm:inline">Bahasa Indonesia</span>
-          </a>
+            <span className="hidden sm:inline">{useIndonesian ? 'Bahasa Indonesia ON' : 'Bahasa Indonesia'}</span>
+          </button>
         </div>
         <div className="flex items-center gap-1 sm:gap-3 justify-center relative min-w-0 flex-shrink" ref={headerMenuRef}>
           <h1 className="text-sm sm:text-lg font-bold text-gray-800 truncate hidden sm:block" style={{ maxWidth: '8rem' }}>{APP_NAME}</h1>
@@ -3000,7 +3062,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             className={`text-xs sm:text-sm font-medium rounded px-1.5 sm:px-2 py-1.5 transition-colors flex items-center gap-0.5 sm:gap-1 shrink-0 ${isHeaderMenuOpen ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
             title="ボードを切り替え"
           >
-            <span className="hidden sm:inline truncate max-w-[200px]">{currentView === 'board' ? currentBoard.title : '代車・レンタカー 貸出状況'}</span>
+            <span className="hidden sm:inline truncate max-w-[200px]">{currentView === 'board' ? getBoardTitle(currentBoardId, useIndonesian) : (useIndonesian ? 'Peminjaman Kendaraan' : '代車・レンタカー 貸出状況')}</span>
             <span className="sm:hidden">{currentView === 'board' ? 'ボード' : '代車'}</span>
             {currentView === 'board' && currentBoardId === 'main' && <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </button>
@@ -3012,7 +3074,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-80 bg-white border border-gray-200 shadow-xl rounded-md py-2 z-50">
               {BOARD_ORDER.map(id => BOARDS[id]).filter(Boolean).map(board => (
                 <button key={board.id} onClick={() => switchBoard(board.id)} className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${currentBoardId === board.id && currentView === 'board' ? 'border-l-2 border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-700'}`}>
-                  {board.title}
+                  {getBoardTitle(board.id, useIndonesian)}
                 </button>
               ))}
             </div>
@@ -3192,26 +3254,26 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                               </span>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className="text-xl text-gray-800 font-semibold">対象ボード:</span>
+                              <span className="text-xl text-gray-800 font-semibold">{useIndonesian ? 'Papan Tujuan:' : '対象ボード:'}</span>
                               <select
                                 className="border border-amber-300 rounded px-4 py-2.5 bg-white text-xl font-medium"
                                 value={nfcBoardId}
                                 onChange={(e) => setNfcBoardId(e.target.value === 'paint' ? 'paint' : 'body')}
                               >
-                                <option value="body">鈑金ボード</option>
-                                <option value="paint">塗装ボード</option>
+                                <option value="body">{useIndonesian ? 'Bodyshop' : '鈑金ボード'}</option>
+                                <option value="paint">{useIndonesian ? 'Paint' : '塗装ボード'}</option>
                               </select>
                             </div>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-4">
                             <span className="text-xl text-gray-900 font-semibold">
-                              現在の列:{' '}
+                              {useIndonesian ? 'Kolom Saat Ini:' : '現在の列:'}{' '}
                               <span className="text-xl text-blue-700 font-semibold">
-                                {boardColumns.find(col => getColumnStatuses(col).includes(selectedTask.status))?.name || '判別できません'}
+                                {(() => { const c = boardColumns.find(col => getColumnStatuses(col).includes(selectedTask.status)); return c ? getColumnName(c, useIndonesian) : (useIndonesian ? 'Tidak dapat menentukan' : '判別できません'); })()}
                               </span>
                             </span>
                             <div className="flex items-center gap-3">
-                              <span className="text-xl text-gray-900 font-semibold">移動先:</span>
+                              <span className="text-xl text-gray-900 font-semibold">{useIndonesian ? 'Tujuan:' : '移動先:'}</span>
                               <select
                                 className="border border-amber-300 rounded px-4 py-3 bg-white text-xl font-medium"
                                 defaultValue=""
@@ -3226,10 +3288,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                                   e.target.value = '';
                                 }}
                               >
-                                <option value="">列を選択</option>
+                                <option value="">{useIndonesian ? 'Pilih kolom' : '列を選択'}</option>
                                 {nfcBoardColumns.map(col => (
                                   <option key={col.id} value={col.id}>
-                                    {col.name}
+                                    {getColumnName(col, useIndonesian)}
                                   </option>
                                 ))}
                               </select>
@@ -3318,7 +3380,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                       return (
                         <div key={col.id} style={{ minWidth: `${columnMinWidth}px` }} className={`min-w-0 flex-1 flex flex-col rounded-md border border-gray-200 flex-shrink ${currentBoardId === 'planning' ? 'bg-gray-400' : 'bg-gray-50'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col)}>
                           <div className={`p-3 font-semibold flex justify-between items-center text-sm border-b border-gray-200 rounded-t-md ${currentBoardId === 'planning' ? 'bg-white text-gray-800' : 'bg-gray-100 text-gray-700'}`}>
-                            <div className="truncate pr-2" title={col.name}>{col.name}</div>
+                            <div className="truncate pr-2" title={getColumnName(col, useIndonesian)}>{getColumnName(col, useIndonesian)}</div>
                             <div className={`text-xs px-1.5 py-0.5 rounded-full border ${currentBoardId === 'planning' ? 'bg-gray-100 text-gray-600 border-gray-300' : 'bg-white text-gray-500 border-gray-200'}`}>
                               {totalCount}
                             </div>
@@ -3442,6 +3504,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     getColumnStatuses={getColumnStatuses}
                     getColumnPrimaryStatus={getColumnPrimaryStatus}
                     moveTargetOptions={allColumnOptions}
+                    useIndonesian={useIndonesian}
                   />
                 </div>
               )}
@@ -3576,7 +3639,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                                   });
                                   const cols = bid ? getColumnsForBoard(boardColumnsConfig, bid) : [];
                                   const col = (cols || []).find(c => getColumnStatusesForBoard(bid, c).includes(t.status));
-                                  return col ? `${(BOARDS[bid] && BOARDS[bid].title) || bid} > ${col.name}` : t.status;
+                                  return col ? `${getBoardTitle(bid, useIndonesian)} > ${getColumnName(col, useIndonesian)}` : t.status;
                                 })() : null;
                                 return (
                                   <li key={t.id} className="flex flex-wrap items-center gap-2">
@@ -4216,7 +4279,7 @@ function Accordion({ title, children, defaultOpen = true }) {
 
 const MASTER_PASSCODE = '0514';
 
-function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [] }) {
+function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
@@ -4273,7 +4336,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                    else base = window.location.origin + (import.meta.env.BASE_URL || '/');
                  }
                  base = base.replace(/\/+$/, '');
-                 const url = `${base}/?nfcStandalone=1&nfcTaskId=${task.id}`;
+                 const url = `${base}/?nfcStandalone=1&nfcTaskId=${task.id}${useIndonesian ? '&lang=id' : ''}`;
                  if (navigator.clipboard && navigator.clipboard.writeText) {
                    navigator.clipboard.writeText(url).then(() => {
                      alert('このカード用のNFC URLをコピーしました。\nNFC書き込みアプリに貼り付けてください。\n\n' + url);
