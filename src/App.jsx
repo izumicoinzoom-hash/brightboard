@@ -1714,17 +1714,13 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState(''); // 'success' | 'error' | ''
+  const [errorDetail, setErrorDetail] = useState(''); // 送信失敗時の詳細（権限エラー等）
 
   // 送り先候補: 過去ログインユーザーと VITE_ALLOWED_EMAILS をマージ（重複はemailで除外、表示名は過去ログイン優先）
   const allowedList = (Array.isArray(allowedEmails) ? allowedEmails : []).map((email) => ({ email: email.toLowerCase(), displayName: email }));
   const byEmail = new Map();
   pastLoginUsers.forEach((u) => byEmail.set((u.email || '').toLowerCase(), u));
   allowedList.forEach((u) => { if (!byEmail.has(u.email)) byEmail.set(u.email, u); });
-  // ログイン済みの場合は自分を必ず送り先に含める（Firestore の users が空でも「自分（テスト用）」で通知テスト可能）
-  const myEmailLower = (currentUserEmail || '').toLowerCase();
-  if (myEmailLower && !byEmail.has(myEmailLower)) {
-    byEmail.set(myEmailLower, { email: myEmailLower, displayName: currentUser || currentUserEmail || myEmailLower });
-  }
   const recipientOptions = Array.from(byEmail.values()).filter((u) => (u.email || '').trim());
   const TO_ALL_VALUE = '__all__'; // 送り先「すべてのログインユーザーに送る」のときの value
 
@@ -1735,16 +1731,18 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
     if (!text || !target) return;
     if (!isFirebaseConfigured()) {
       setStatus('error');
+      setErrorDetail('VITE_FIREBASE_* の環境変数が設定されていません。');
       return;
     }
     setIsSending(true);
     setStatus('');
+    setErrorDetail('');
     try {
       const fromUser = currentUser || '（未設定）';
       const fromEmail = (currentUserEmail || '').toLowerCase();
       const payload = { fromUser, fromEmail, message: text, createdAt: new Date().toISOString(), read: false };
       if (target === TO_ALL_VALUE) {
-        for (const u of recipientOptions) {
+        for (const u of displayOptions) {
           const email = (u.email || '').toLowerCase();
           if (!email) continue;
           const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `n_${Date.now()}_${Math.random().toString(36).slice(2)}_${email.slice(0, 8)}`;
@@ -1758,16 +1756,20 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
       setMessage('');
       setToEmail('');
       setTimeout(() => onClose(), 1500);
-    } catch (_) {
+    } catch (err) {
       setStatus('error');
+      const msg = (err && err.message) ? String(err.message) : '';
+      const hint = /permission|権限|forbidden/i.test(msg)
+        ? 'Firestore の notifications コレクションで、認証済みユーザー（request.auth != null）の書き込みを許可するルールを追加してください。'
+        : msg || 'Firebase の設定とネットワークを確認してください。';
+      setErrorDetail(hint);
     } finally {
       setIsSending(false);
     }
   };
 
   const myEmail = (currentUserEmail || '').toLowerCase();
-  // 自分も送り先に含める（自分に送ると自分のベルでテストできる）。自分以外は従来どおり表示
-  const displayOptions = recipientOptions;
+  const displayOptions = recipientOptions.filter((u) => (u.email || '').toLowerCase() !== myEmail);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -1797,9 +1799,7 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
               )}
               {displayOptions.map((u) => (
                 <option key={u.email} value={u.email}>
-                  {(u.email || '').toLowerCase() === myEmail
-                    ? `自分（テスト用） — ${u.displayName || u.email}`
-                    : (u.displayName ? `${u.displayName}（${u.email}）` : u.email)}
+                  {u.displayName ? `${u.displayName}（${u.email}）` : u.email}
                 </option>
               ))}
             </select>
@@ -1818,7 +1818,10 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
             />
           </div>
           {status === 'error' && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">送信に失敗しました。Firebaseの設定を確認してください。</div>
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm space-y-1">
+              <div>送信に失敗しました。</div>
+              {errorDetail && <div className="text-xs mt-1">{errorDetail}</div>}
+            </div>
           )}
           {status === 'success' && (
             <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">送信しました。</div>
@@ -4115,10 +4118,32 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
             <hr className="border-gray-200" />
 
             <div className="space-y-4">
+              <div className="flex gap-4 items-center flex-wrap">
+                <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">入庫日</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!formData.inDate}
+                      onChange={(e) => setFormData({ ...formData, inDate: e.target.checked ? '' : getTodayString() })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">入庫日未定</span>
+                  </label>
+                  {formData.inDate ? (
+                    <input
+                      type="date"
+                      className="border border-gray-300 rounded px-3 py-1.5 text-sm w-40"
+                      value={formData.inDate}
+                      onChange={(e) => setFormData({ ...formData, inDate: e.target.value })}
+                    />
+                  ) : (
+                    <span className="text-sm text-gray-500">（日付を指定する場合はチェックを外すと当日が入ります）</span>
+                  )}
+                </div>
+              </div>
               <div className="flex gap-4 items-center">
-                <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">入庫日 <span className="text-red-500">*</span></label>
-                <input type="date" className="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" value={formData.inDate} onChange={(e) => setFormData({...formData, inDate: e.target.value})} required />
-                <label className="text-sm font-medium text-gray-700 ml-4">納車日</label>
+                <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">納車日</label>
                 <input type="date" className="border border-gray-300 rounded px-3 py-1.5 text-sm w-40" value={formData.outDate} onChange={(e) => setFormData({...formData, outDate: e.target.value})} />
               </div>
 
