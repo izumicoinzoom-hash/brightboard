@@ -1768,7 +1768,9 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
           <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          <p className="text-sm text-gray-600">送り先を選び、内容を入力して送信すると相手の右上ベルに通知が届き、赤いバッジで未読が表示されます。</p>
+          <p className="text-sm text-gray-600">
+            メールは送信されません。送り先のユーザーがアプリにログインしているとき、相手の画面右上のベルに赤いバッジが付き、ベルを開くと通知を読めます。
+          </p>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">送り先</label>
             <select
