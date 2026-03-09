@@ -1720,12 +1720,18 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
   const byEmail = new Map();
   pastLoginUsers.forEach((u) => byEmail.set((u.email || '').toLowerCase(), u));
   allowedList.forEach((u) => { if (!byEmail.has(u.email)) byEmail.set(u.email, u); });
+  // ログイン済みの場合は自分を必ず送り先に含める（Firestore の users が空でも「自分（テスト用）」で通知テスト可能）
+  const myEmailLower = (currentUserEmail || '').toLowerCase();
+  if (myEmailLower && !byEmail.has(myEmailLower)) {
+    byEmail.set(myEmailLower, { email: myEmailLower, displayName: currentUser || currentUserEmail || myEmailLower });
+  }
   const recipientOptions = Array.from(byEmail.values()).filter((u) => (u.email || '').trim());
+  const TO_ALL_VALUE = '__all__'; // 送り先「すべてのログインユーザーに送る」のときの value
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const text = (message || '').trim();
-    const target = (toEmail || '').trim().toLowerCase();
+    const target = (toEmail || '').trim();
     if (!text || !target) return;
     if (!isFirebaseConfigured()) {
       setStatus('error');
@@ -1734,15 +1740,20 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
     setIsSending(true);
     setStatus('');
     try {
-      const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `n_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      await upsertDocument('notifications', id, {
-        toEmail: target,
-        fromUser: currentUser || '（未設定）',
-        fromEmail: (currentUserEmail || '').toLowerCase(),
-        message: text,
-        createdAt: new Date().toISOString(),
-        read: false
-      });
+      const fromUser = currentUser || '（未設定）';
+      const fromEmail = (currentUserEmail || '').toLowerCase();
+      const payload = { fromUser, fromEmail, message: text, createdAt: new Date().toISOString(), read: false };
+      if (target === TO_ALL_VALUE) {
+        for (const u of recipientOptions) {
+          const email = (u.email || '').toLowerCase();
+          if (!email) continue;
+          const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `n_${Date.now()}_${Math.random().toString(36).slice(2)}_${email.slice(0, 8)}`;
+          await upsertDocument('notifications', id, { ...payload, toEmail: email });
+        }
+      } else {
+        const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `n_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        await upsertDocument('notifications', id, { ...payload, toEmail: target.toLowerCase() });
+      }
       setStatus('success');
       setMessage('');
       setToEmail('');
@@ -1755,7 +1766,8 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
   };
 
   const myEmail = (currentUserEmail || '').toLowerCase();
-  const filteredOptions = recipientOptions.filter((u) => (u.email || '') !== myEmail);
+  // 自分も送り先に含める（自分に送ると自分のベルでテストできる）。自分以外は従来どおり表示
+  const displayOptions = recipientOptions;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -1780,14 +1792,19 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
               required
             >
               <option value="">選択してください</option>
-              {filteredOptions.map((u) => (
+              {displayOptions.length > 0 && (
+                <option value={TO_ALL_VALUE}>すべてのログインユーザーに送る（{displayOptions.length}人）</option>
+              )}
+              {displayOptions.map((u) => (
                 <option key={u.email} value={u.email}>
-                  {u.displayName ? `${u.displayName}（${u.email}）` : u.email}
+                  {(u.email || '').toLowerCase() === myEmail
+                    ? `自分（テスト用） — ${u.displayName || u.email}`
+                    : (u.displayName ? `${u.displayName}（${u.email}）` : u.email)}
                 </option>
               ))}
             </select>
-            {filteredOptions.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">送り先がありません。VITE_ALLOWED_EMAILS にメールアドレスを設定するか、PCでGoogleログインしたユーザーが1人以上いると送り先に表示されます。</p>
+            {displayOptions.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">送り先がありません。.env の VITE_ALLOWED_EMAILS にメールアドレスをカンマ区切りで設定するか、誰かがPCでこのアプリにGoogleログインすると送り先に表示されます。Firestore の users コレクションの読み取り権限もご確認ください。</p>
             )}
           </div>
           <div>
