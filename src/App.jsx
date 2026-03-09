@@ -1731,12 +1731,17 @@ function CalendarLinkModal({ onClose }) {
   );
 }
 
-// --- 通知を送るモーダル（送り先を選んでアプリ内通知を送信）---
-function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '', allowedEmails = [] }) {
+// --- 通知を送るモーダル（目安箱：送り先を過去ログインユーザーから選んで送信）---
+function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '', allowedEmails = [], pastLoginUsers = [] }) {
   const [toEmail, setToEmail] = useState('');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState(''); // 'success' | 'error' | ''
+
+  // 送り先候補: 過去ログインユーザーがあればそれを使い、なければ VITE_ALLOWED_EMAILS にフォールバック
+  const recipientOptions = pastLoginUsers.length > 0
+    ? pastLoginUsers
+    : (Array.isArray(allowedEmails) ? allowedEmails : []).map((email) => ({ email: email.toLowerCase(), displayName: email }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1770,7 +1775,8 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
     }
   };
 
-  const emails = Array.isArray(allowedEmails) ? allowedEmails : [];
+  const myEmail = (currentUserEmail || '').toLowerCase();
+  const filteredOptions = recipientOptions.filter((u) => (u.email || '') !== myEmail);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -1778,12 +1784,12 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
             <Mailbox className="w-5 h-5 text-amber-600" />
-            通知を送る
+            通知を送る（目安箱）
           </h2>
           <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          <p className="text-sm text-gray-600">送り先を選び、内容を入力して送信すると相手のベルに通知が届きます。</p>
+          <p className="text-sm text-gray-600">送り先を選び、内容を入力して送信すると相手の右上ベルに通知が届き、赤いバッジで未読が表示されます。</p>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">送り先</label>
             <select
@@ -1793,12 +1799,14 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
               required
             >
               <option value="">選択してください</option>
-              {emails.filter((e) => e !== (currentUserEmail || '').toLowerCase()).map((email) => (
-                <option key={email} value={email}>{email}</option>
+              {filteredOptions.map((u) => (
+                <option key={u.email} value={u.email}>
+                  {u.displayName ? `${u.displayName}（${u.email}）` : u.email}
+                </option>
               ))}
             </select>
-            {emails.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">送り先は VITE_ALLOWED_EMAILS で設定されたメールアドレスです。未設定の場合は管理者にご連絡ください。</p>
+            {filteredOptions.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">過去にログインしたユーザーがまだいません。誰かが一度ログインすると送り先に表示されます。VITE_ALLOWED_EMAILS が設定されていればその一覧が表示されます。</p>
             )}
           </div>
           <div>
@@ -2054,6 +2062,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [currentView, setCurrentView] = useState('board');
   const [isSendNotificationOpen, setIsSendNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [pastLoginUsers, setPastLoginUsers] = useState([]); // 目安箱の送り先リスト（過去にログインしたユーザー）
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const notificationPanelRef = useRef(null);
   const [currentBoardId, setCurrentBoardId] = useState('main');
@@ -2401,6 +2410,19 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     });
     return () => unsubscribe && unsubscribe();
   }, [currentUserEmail]);
+
+  // 過去にログインしたユーザー一覧（目安箱の送り先リスト用）
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return () => {};
+    const unsub = subscribeCollection('users', (items) => {
+      const list = (items || [])
+        .filter((u) => (u.email || '').trim())
+        .map((u) => ({ id: u.id, email: (u.email || '').toLowerCase(), displayName: u.displayName || u.email || '', lastLoginAt: u.lastLoginAt || '' }))
+        .sort((a, b) => (b.lastLoginAt || '').localeCompare(a.lastLoginAt || ''));
+      setPastLoginUsers(list);
+    });
+    return () => unsub && unsub();
+  }, []);
 
   // 通知パネルを開いたとき（false→true の瞬間）に未読を既読にする
   const prevNotificationPanelOpen = useRef(false);
@@ -3220,13 +3242,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
             <Mailbox className="w-5 h-5" />
           </button>
           <div className="relative flex-shrink-0" ref={notificationPanelRef}>
-            <button type="button" onClick={() => setIsNotificationPanelOpen((v) => !v)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0 relative" title="通知">
+            <button type="button" onClick={() => setIsNotificationPanelOpen((v) => !v)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0 relative" title={(() => { const u = (notifications || []).filter((n) => !n.read).length; return u > 0 ? `通知（未読${u}件）` : '通知'; })()}>
               <Bell className="w-5 h-5" />
               {(() => {
                 const unreadCount = (notifications || []).filter((n) => !n.read).length;
                 if (unreadCount <= 0) return null;
                 return (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold ring-2 ring-white" aria-label={`未読${unreadCount}件`}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 );
@@ -3708,6 +3730,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           currentUser={currentUser}
           currentUserEmail={currentUserEmail}
           allowedEmails={getAllowedEmails() || []}
+          pastLoginUsers={pastLoginUsers}
         />
       )}
 
@@ -5104,6 +5127,16 @@ export default function App() {
         setCurrentUserEmail(user.email || '');
         setIsLoggedIn(true);
         setIsAuthLoading(false);
+        // 過去ログインユーザー一覧（目安箱の送り先リスト）用に Firestore に記録
+        if (isFirebaseConfigured() && user.email) {
+          const email = (user.email || '').toLowerCase();
+          const docId = email.replace(/\//g, '_');
+          upsertDocument('users', docId, {
+            email,
+            displayName: user.displayName || user.email || email,
+            lastLoginAt: new Date().toISOString()
+          }).catch(() => {});
+        }
       });
     })();
     return () => {
