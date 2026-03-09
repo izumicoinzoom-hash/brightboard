@@ -1,7 +1,8 @@
-# デモ用 SPA: このフォルダ内の存在しないパスは demo の index.html に振り向ける
+# SPA: 存在しないパスは index.html に振り向ける（Xserver など Apache 用）
+# サブフォルダ（例: /kotei/）に配置する場合は RewriteBase と最後の RewriteRule を変更すること
 RewriteEngine On
-RewriteBase /kiyota/demo/
+RewriteBase /
 RewriteRule ^index\.html$ - [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . index.html [L]
+RewriteRule . /index.html [L]

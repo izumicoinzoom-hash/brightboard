@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox
 } from 'lucide-react';
 import {
   getFirebaseAuth,
   getFirestoreDb,
   isFirebaseConfigured,
+  isMobileOrNarrow,
   signInWithGoogle,
   handleRedirectResult,
   signOut as firebaseSignOut,
@@ -745,7 +746,7 @@ function LoginScreen({ authError, isLoading, onSignIn }) {
 const FLEET_TYPE_OPTIONS = ['軽自動車', '普通車', 'レンタカー'];
 
 // --- 代車ガントチャートコンポーネント ---
-function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservations, onReservationUpdate, setTasks }) {
+function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservations, onReservationUpdate, setTasks, viewOnly = false }) {
   const [draggedRes, setDraggedRes] = useState(null);
   const [resizingResId, setResizingResId] = useState(null);
   const [newCarName, setNewCarName] = useState('');
@@ -833,6 +834,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
   }, [resizingResId, startDateStr, daysRange, dates, setReservations]);
 
   const handleDragStart = (e, res) => {
+    if (viewOnly) return;
     setDraggedRes(res);
     e.dataTransfer.effectAllowed = 'move';
 
@@ -846,7 +848,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
 
   const handleRowDrop = (e, targetCarId) => {
     e.preventDefault();
-    if (!draggedRes) return;
+    if (viewOnly || !draggedRes) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
@@ -962,7 +964,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
               <div
                 className="flex flex-1 relative"
                 data-timeline-row
-                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                onDragOver={(e) => { e.preventDefault(); if (!viewOnly) e.dataTransfer.dropEffect = 'move'; }}
                 onDrop={(e) => handleRowDrop(e, car.id)}
               >
                 {dates.map((d, i) => (
@@ -987,14 +989,15 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
                       style={{ left: `${leftPct}%`, width: `${widthPct}%`, zIndex: 5 }}
                     >
                       <div
-                        draggable
+                        draggable={!viewOnly}
                         onDragStart={(e) => handleDragStart(e, res)}
                         onDragEnd={() => setDraggedRes(null)}
-                        className={`flex-1 min-w-0 rounded-l-md shadow-sm flex items-center px-2 text-xs font-semibold truncate cursor-grab active:cursor-grabbing border border-black/10 rounded-r-none ${res.color} ${draggedRes?.id === res.id ? 'opacity-50' : 'hover:brightness-95'}`}
+                        className={`flex-1 min-w-0 rounded-l-md shadow-sm flex items-center px-2 text-xs font-semibold truncate border border-black/10 rounded-r-none ${res.color} ${draggedRes?.id === res.id ? 'opacity-50' : 'hover:brightness-95'} ${viewOnly ? '' : 'cursor-grab active:cursor-grabbing'}`}
                         title={`${res.taskName} (${res.start} ~ ${res.end})`}
                       >
                         {res.taskName}
                       </div>
+                      {!viewOnly && (
                       <div
                         role="button"
                         tabIndex={0}
@@ -1003,6 +1006,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
                         onMouseDown={(e) => handleResizeStart(e, res)}
                         onDragStart={(e) => e.preventDefault()}
                       />
+                      )}
                     </div>
                   );
                 })}
@@ -1727,6 +1731,104 @@ function CalendarLinkModal({ onClose }) {
   );
 }
 
+// --- 通知を送るモーダル（送り先を選んでアプリ内通知を送信）---
+function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '', allowedEmails = [] }) {
+  const [toEmail, setToEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [status, setStatus] = useState(''); // 'success' | 'error' | ''
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const text = (message || '').trim();
+    const target = (toEmail || '').trim().toLowerCase();
+    if (!text || !target) return;
+    if (!isFirebaseConfigured()) {
+      setStatus('error');
+      return;
+    }
+    setIsSending(true);
+    setStatus('');
+    try {
+      const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `n_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      await upsertDocument('notifications', id, {
+        toEmail: target,
+        fromUser: currentUser || '（未設定）',
+        fromEmail: (currentUserEmail || '').toLowerCase(),
+        message: text,
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+      setStatus('success');
+      setMessage('');
+      setToEmail('');
+      setTimeout(() => onClose(), 1500);
+    } catch (_) {
+      setStatus('error');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const emails = Array.isArray(allowedEmails) ? allowedEmails : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <Mailbox className="w-5 h-5 text-amber-600" />
+            通知を送る
+          </h2>
+          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+          <p className="text-sm text-gray-600">送り先を選び、内容を入力して送信すると相手のベルに通知が届きます。</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">送り先</label>
+            <select
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+              value={toEmail}
+              onChange={(e) => setToEmail(e.target.value)}
+              required
+            >
+              <option value="">選択してください</option>
+              {emails.filter((e) => e !== (currentUserEmail || '').toLowerCase()).map((email) => (
+                <option key={email} value={email}>{email}</option>
+              ))}
+            </select>
+            {emails.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">送り先は VITE_ALLOWED_EMAILS で設定されたメールアドレスです。未設定の場合は管理者にご連絡ください。</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">内容</label>
+            <textarea
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm min-h-[100px] resize-y"
+              placeholder="伝えたいことを入力..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              disabled={isSending}
+            />
+          </div>
+          {status === 'error' && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">送信に失敗しました。Firebaseの設定を確認してください。</div>
+          )}
+          {status === 'success' && (
+            <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">送信しました。</div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={isSending || !(message || '').trim() || !(toEmail || '').trim()} className="flex-1 px-4 py-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSending ? '送信中...' : '送信する'}
+            </button>
+            <button type="button" onClick={onClose} disabled={isSending} className="px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">閉じる</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
 function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null }) {
   const useIndonesian = (() => {
@@ -1947,8 +2049,13 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
 }
 
 // --- メインアプリ画面 ---
-function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTaskId = null }) {
+function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail = '', onLogout, nfcTaskId = null }) {
+  const isViewOnly = currentUser === '現場端末'; // スマホ・タブレットは閲覧専用（カード移動・編集・作成なし）
   const [currentView, setCurrentView] = useState('board');
+  const [isSendNotificationOpen, setIsSendNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const notificationPanelRef = useRef(null);
   const [currentBoardId, setCurrentBoardId] = useState('main');
   const [tasks, setTasks] = useState(() => {
     try {
@@ -2279,6 +2386,33 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
   useOutsideClick(projectMenuRef, () => setIsProjectMenuOpen(false));
   useOutsideClick(searchMenuRef, () => setIsSearchMenuOpen(false));
   useOutsideClick(accountMenuRef, () => setIsAccountMenuOpen(false));
+  useOutsideClick(notificationPanelRef, () => setIsNotificationPanelOpen(false));
+
+  // 自分あての通知を購読（toEmail === currentUserEmail）
+  useEffect(() => {
+    if (!isFirebaseConfigured()) return () => {};
+    const myEmail = (currentUserEmail || '').toLowerCase();
+    if (!myEmail) return () => {};
+    const unsubscribe = subscribeCollection('notifications', (items) => {
+      const mine = (items || [])
+        .filter((n) => (n.toEmail || '').toLowerCase() === myEmail)
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      setNotifications(mine);
+    });
+    return () => unsubscribe && unsubscribe();
+  }, [currentUserEmail]);
+
+  // 通知パネルを開いたとき（false→true の瞬間）に未読を既読にする
+  const prevNotificationPanelOpen = useRef(false);
+  useEffect(() => {
+    const justOpened = isNotificationPanelOpen && !prevNotificationPanelOpen.current;
+    prevNotificationPanelOpen.current = isNotificationPanelOpen;
+    if (!justOpened || !isFirebaseConfigured()) return;
+    const unread = notifications.filter((n) => !n.read);
+    unread.forEach((n) => {
+      upsertDocument('notifications', n.id, { ...n, read: true }).catch(() => {});
+    });
+  }, [isNotificationPanelOpen, notifications]);
   const enableWeekGrouping = currentBoardId === 'planning';
   const isNfcMode = !!nfcTaskId;
   const [nfcBoardId, setNfcBoardId] = useState('body');
@@ -2415,10 +2549,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     return (
     <div
       key={task.id}
-      draggable
+      draggable={!isViewOnly}
       onDragStart={(e) => handleDragStart(e, task.id)}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; }}
       onDrop={(e) => {
+        if (isViewOnly) return;
         const dragged = tasks.find(t => t.id === draggedTaskId);
         // 別ステータス（別の列）からドラッグしてきた場合は、
         // カード上ではなく列全体の onDrop でステータス変更を扱いたいので何もしない。
@@ -2429,7 +2564,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
       }}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
-      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 cursor-pointer active:cursor-grabbing hover:bg-gray-50 relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
+      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 ${isViewOnly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing hover:bg-gray-50'} relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
@@ -2849,11 +2984,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
     return transitionTaskStatusWithOperator(task, newStatus, extra, operatorName);
   };
 
-  const handleDragStart = (e, id) => { setDraggedTaskId(id); e.dataTransfer.effectAllowed = 'move'; };
-  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  const handleDragStart = (e, id) => { if (isViewOnly) return; setDraggedTaskId(id); e.dataTransfer.effectAllowed = 'move'; };
+  const handleDragOver = (e) => { e.preventDefault(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; };
   const handleDrop = (e, col) => {
     e.preventDefault();
-    if (!draggedTaskId) return;
+    if (isViewOnly || !draggedTaskId) return;
     const status = getColumnPrimaryStatus(col);
     let newInDate;
     if (currentBoardId === 'planning' && ['mon','tue','wed','thu','fri','sat','sun'].includes(col.id)) {
@@ -3066,7 +3201,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
             <span className="sm:hidden">{currentView === 'board' ? 'ボード' : '代車'}</span>
             {currentView === 'board' && currentBoardId === 'main' && <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </button>
-          <Button onClick={() => setIsCreateModalOpen(true)} className="!px-2 sm:!px-3 !py-1.5 !text-xs sm:!text-sm shrink-0"><span className="hidden sm:inline">カード作成</span><span className="sm:hidden">作成</span></Button>
+          {!isViewOnly && <Button onClick={() => setIsCreateModalOpen(true)} className="!px-2 sm:!px-3 !py-1.5 !text-xs sm:!text-sm shrink-0"><span className="hidden sm:inline">カード作成</span><span className="sm:hidden">作成</span></Button>}
           <button type="button" onClick={() => setIsCalendarLinkModalOpen(true)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:bg-gray-100 hover:text-gray-700 flex-shrink-0" title="Googleカレンダーから入庫予定作成">
             <Calendar className="w-5 h-5" />
           </button>
@@ -3081,7 +3216,48 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
           )}
         </div>
         <div className="flex-1 flex items-center justify-end gap-1 sm:gap-3 min-w-0 flex-shrink-0">
-          <Bell className="w-5 h-5 text-gray-500 hover:text-gray-700 cursor-pointer flex-shrink-0" />
+          <button type="button" onClick={() => setIsSendNotificationOpen(true)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0" title="通知を送る">
+            <Mailbox className="w-5 h-5" />
+          </button>
+          <div className="relative flex-shrink-0" ref={notificationPanelRef}>
+            <button type="button" onClick={() => setIsNotificationPanelOpen((v) => !v)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0 relative" title="通知">
+              <Bell className="w-5 h-5" />
+              {(() => {
+                const unreadCount = (notifications || []).filter((n) => !n.read).length;
+                if (unreadCount <= 0) return null;
+                return (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                );
+              })()}
+            </button>
+            {isNotificationPanelOpen && (
+              <div className="absolute top-full right-0 mt-1 w-80 max-h-[70vh] bg-white border border-gray-200 shadow-xl rounded-md overflow-hidden z-50 flex flex-col">
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-800">通知</span>
+                  {(notifications || []).filter((n) => !n.read).length > 0 && (
+                    <span className="text-xs text-gray-500">開くと既読になります</span>
+                  )}
+                </div>
+                <div className="overflow-y-auto flex-1 min-h-0">
+                  {(notifications || []).length === 0 ? (
+                    <div className="p-6 text-center text-sm text-gray-500">通知はありません</div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {(notifications || []).map((n) => (
+                        <li key={n.id} className={`px-4 py-3 text-sm ${n.read ? 'bg-gray-50/50 text-gray-600' : 'bg-white'}`}>
+                          <div className="font-medium text-gray-800">{n.fromUser || '（不明）'}</div>
+                          <div className="mt-0.5 text-gray-700 whitespace-pre-wrap">{n.message || ''}</div>
+                          <div className="mt-1 text-xs text-gray-400">{n.createdAt ? new Date(n.createdAt).toLocaleString('ja-JP') : ''}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="relative flex-shrink-0" ref={searchMenuRef}>
             <button onClick={() => setIsSearchMenuOpen(!isSearchMenuOpen)} className={`p-1.5 sm:px-3 sm:py-1.5 rounded flex items-center gap-1 ${isSearchMenuOpen ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100'} text-gray-700`} title="カード検索">
               <Search className="w-4 h-4 flex-shrink-0" />
@@ -3178,7 +3354,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
           <button type="button" onClick={() => window.open(`${import.meta.env.BASE_URL}estimator/見積もりチェッカー2.html?${new URLSearchParams({ 担当者: currentUser || '' }).toString()}`, '_blank', 'noopener,noreferrer')} className="p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer" title="見積もり漏れチェッカー（担当者に受付担当者を反映）">
             <FileText className="w-5 h-5" />
           </button>
-          <Settings onClick={() => setIsSettingsOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer mt-auto" title="設定" />
+          {!isViewOnly && <Settings onClick={() => setIsSettingsOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer mt-auto" title="設定" />}
         </div>
 
         <div className="flex-1 flex overflow-hidden bg-white min-h-0">
@@ -3190,6 +3366,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
               setReservations={setReservations}
               onReservationUpdate={handleReservationUpdate}
               setTasks={setTasks}
+              viewOnly={isViewOnly}
             />
           ) : currentView === 'history' ? (
             <div className="flex-1 min-h-0 p-4 bg-white overflow-y-auto">
@@ -3505,6 +3682,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
                     getColumnPrimaryStatus={getColumnPrimaryStatus}
                     moveTargetOptions={allColumnOptions}
                     useIndonesian={useIndonesian}
+                    viewOnly={isViewOnly}
                   />
                 </div>
               )}
@@ -3524,6 +3702,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', onLogout, nfcTask
         />
       )}
       {isCalendarLinkModalOpen && <CalendarLinkModal onClose={() => setIsCalendarLinkModalOpen(false)} />}
+      {isSendNotificationOpen && (
+        <SendNotificationModal
+          onClose={() => setIsSendNotificationOpen(false)}
+          currentUser={currentUser}
+          currentUserEmail={currentUserEmail}
+          allowedEmails={getAllowedEmails() || []}
+        />
+      )}
 
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -4279,11 +4465,12 @@ function Accordion({ title, children, defaultOpen = true }) {
 
 const MASTER_PASSCODE = '0514';
 
-function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false }) {
+function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
   if (!task) return null;
+  const effectiveOnUpdate = viewOnly ? () => {} : onUpdate;
   const issueKey = `#${task.id.replace(/\D/g, '') || Math.floor(Math.random()*1000) + 2000}`;
   const dots = task.dots || ['white', 'white', 'white', 'white'];
   const config = staffOptionsConfig || getStaffOptionsConfig();
@@ -4295,7 +4482,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
   const handleDotColor = (color) => {
     const newDots = [...dots];
     newDots[activeDotIndex] = color;
-    onUpdate({ ...task, dots: newDots });
+    effectiveOnUpdate({ ...task, dots: newDots });
   };
 
   const handleFileChange = async (e) => {
@@ -4308,13 +4495,13 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
       const data = await readFileAsDataUrl(file);
       list.push({ type, name: file.name, data });
     }
-    onUpdate({ ...task, attachments: list });
+    effectiveOnUpdate({ ...task, attachments: list });
     e.target.value = '';
   };
 
   const removeAttachment = (index) => {
     const list = (task.attachments || []).filter((_, i) => i !== index);
-    onUpdate({ ...task, attachments: list });
+    effectiveOnUpdate({ ...task, attachments: list });
   };
 
   const attachmentsList = Array.isArray(task.attachments) ? task.attachments : [];
@@ -4322,11 +4509,17 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
   return (
     <div className="flex h-full text-gray-800 bg-white">
       <div className="flex-1 flex flex-col h-full overflow-hidden border-l border-gray-200 shadow-xl">
+        {viewOnly && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm font-medium flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            閲覧専用です（スマホ・タブレット）
+          </div>
+        )}
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white sticky top-0 z-10">
           <div className="flex items-center text-sm text-gray-500 gap-2 overflow-hidden">
              <div className="w-5 h-5 bg-gradient-to-tr from-cyan-400 to-blue-500 rounded flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold">A</div>
             <span className="truncate">株式会社 清田自動車 / <span className="text-blue-600 font-medium">{issueKey}</span></span>
-             <button
+             {!viewOnly && <button
                type="button"
                onClick={() => {
                  let base = '';
@@ -4350,12 +4543,12 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                className="ml-2 px-2 py-1 rounded border border-emerald-500 text-emerald-700 text-xs font-medium hover:bg-emerald-50 flex-shrink-0"
              >
                NFCタグ用URLを発行
-             </button>
+             </button>}
           </div>
           <button onClick={onClose} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded"><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className={`flex-1 overflow-y-auto p-4 space-y-2 ${viewOnly ? 'pointer-events-none select-none' : ''}`}>
           <div className="mb-4 flex items-start gap-2">
              <div className="text-xl font-bold flex-1">- {(task.assignee || '').split(' ')[0]} {task.car}{task.number}</div>
           </div>
@@ -4365,7 +4558,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                <span className="text-gray-500">代車・レンタカー:</span>
                <select
                  value={task.loanerType || 'none'}
-                 onChange={(e) => onUpdate({ ...task, loanerType: e.target.value })}
+                 onChange={(e) => effectiveOnUpdate({ ...task, loanerType: e.target.value })}
                  className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[200px] transition-colors bg-gray-50"
                >
                  {LOANER_OPTIONS.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
@@ -4376,7 +4569,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 <span className="text-gray-500">代車（貸出車両）:</span>
                 <select
                   value={task.loanerCarId || ''}
-                  onChange={(e) => onUpdate({ ...task, loanerCarId: e.target.value })}
+                  onChange={(e) => effectiveOnUpdate({ ...task, loanerCarId: e.target.value })}
                   className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[280px] transition-colors bg-gray-50"
                 >
                   <option value="">車両を選択してください</option>
@@ -4399,26 +4592,26 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             )}
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">車種:</span>
-               <input type="text" value={task.car || ''} onChange={(e) => onUpdate({ ...task, car: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <input type="text" value={task.car || ''} onChange={(e) => effectiveOnUpdate({ ...task, car: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">カラーナンバー:</span>
-               <input type="text" value={task.colorNo || ''} onChange={(e) => onUpdate({ ...task, colorNo: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" placeholder="例: 3R2" />
+               <input type="text" value={task.colorNo || ''} onChange={(e) => effectiveOnUpdate({ ...task, colorNo: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" placeholder="例: 3R2" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">車番:</span>
-               <input type="text" value={task.number || ''} onChange={(e) => onUpdate({ ...task, number: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <input type="text" value={task.number || ''} onChange={(e) => effectiveOnUpdate({ ...task, number: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">顧客:</span>
-               <input type="text" value={task.assignee || ''} onChange={(e) => onUpdate({ ...task, assignee: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <input type="text" value={task.assignee || ''} onChange={(e) => effectiveOnUpdate({ ...task, assignee: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">入庫先ジャンル:</span>
                <div className="space-y-1">
                  <select
                    value={task.entryPrimary || '個人'}
-                   onChange={(e) => onUpdate({ ...task, entryPrimary: e.target.value })}
+                   onChange={(e) => effectiveOnUpdate({ ...task, entryPrimary: e.target.value })}
                    className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[160px] bg-white"
                  >
                    {ENTRY_PRIMARY_OPTIONS.map(opt => (
@@ -4429,7 +4622,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                    <input
                      type="text"
                      value={task.entryDetail || ''}
-                     onChange={(e) => onUpdate({ ...task, entryDetail: e.target.value })}
+                     onChange={(e) => effectiveOnUpdate({ ...task, entryDetail: e.target.value })}
                      className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]"
                      placeholder="詳細（例: ヤナセ、東京海上日動 など）"
                    />
@@ -4439,7 +4632,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                          <button
                            key={name}
                            type="button"
-                           onClick={() => onUpdate({ ...task, entryDetail: name })}
+                           onClick={() => effectiveOnUpdate({ ...task, entryDetail: name })}
                            className="px-2 py-0.5 rounded border border-gray-300 text-xs text-gray-700 hover:bg-gray-100"
                          >
                            {name}
@@ -4456,7 +4649,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                  <input
                    type="url"
                    value={task.lineUrl || ''}
-                   onChange={(e) => onUpdate({ ...task, lineUrl: e.target.value })}
+                   onChange={(e) => effectiveOnUpdate({ ...task, lineUrl: e.target.value })}
                    className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]"
                    placeholder="例: https://line.me/ti/p/..."
                  />
@@ -4477,7 +4670,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                <span className="text-gray-500">受付担当者:</span>
                <select
                  value={task.receptionStaff || ''}
-                 onChange={(e) => onUpdate({ ...task, receptionStaff: e.target.value })}
+                 onChange={(e) => effectiveOnUpdate({ ...task, receptionStaff: e.target.value })}
                  className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[200px] transition-colors bg-gray-50"
                >
                  {receptionOptions.map(name => <option key={name} value={name}>{name}</option>)}
@@ -4505,7 +4698,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                <span className="text-gray-500">鈑金担当者:</span>
                <select
                  value={task.bodyStaff || ''}
-                 onChange={(e) => onUpdate({ ...task, bodyStaff: e.target.value })}
+                 onChange={(e) => effectiveOnUpdate({ ...task, bodyStaff: e.target.value })}
                  className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[200px] transition-colors bg-gray-50"
                >
                  <option value="">選択してください</option>
@@ -4516,7 +4709,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                <span className="text-gray-500">塗装担当者:</span>
                <select
                  value={task.paintStaff || ''}
-                 onChange={(e) => onUpdate({ ...task, paintStaff: e.target.value })}
+                 onChange={(e) => effectiveOnUpdate({ ...task, paintStaff: e.target.value })}
                  className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[200px] transition-colors bg-gray-50"
                >
                  <option value="">選択してください</option>
@@ -4529,11 +4722,11 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                  <span className="text-gray-500">入庫日:</span>
-                 <input type="date" value={task.inDate || ''} onChange={(e) => onUpdate({ ...task, inDate: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[150px]" />
+                 <input type="date" value={task.inDate || ''} onChange={(e) => effectiveOnUpdate({ ...task, inDate: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[150px]" />
               </div>
               <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                  <span className="text-gray-500">納車日:</span>
-                 <input type="date" value={task.outDate || ''} onChange={(e) => onUpdate({ ...task, outDate: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[150px]" />
+                 <input type="date" value={task.outDate || ''} onChange={(e) => effectiveOnUpdate({ ...task, outDate: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[150px]" />
               </div>
             </div>
           </Accordion>
@@ -4599,7 +4792,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 <button
                   type="button"
                   key={colorClass}
-                  onClick={() => onUpdate({ ...task, color: colorClass })}
+                  onClick={() => effectiveOnUpdate({ ...task, color: colorClass })}
                   className={`w-6 h-6 rounded border ${colorClass} ${(task.color || 'bg-white') === colorClass ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`}
                 />
               ))}
@@ -4610,7 +4803,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             <textarea
               className="w-full text-sm text-gray-700 p-2 border border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none rounded resize-y min-h-[80px]"
               value={task.description !== undefined ? task.description : ''}
-              onChange={(e) => onUpdate({ ...task, description: e.target.value })}
+              onChange={(e) => effectiveOnUpdate({ ...task, description: e.target.value })}
               placeholder="カードの説明や特記事項を入力してください..."
             />
           </Accordion>
@@ -4655,7 +4848,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 />
               </div>
               {/* 移動先を指定（どのボードのどの列に移動するか） */}
-              {Array.isArray(moveTargetOptions) && moveTargetOptions.length > 0 && onUpdate && (
+              {!viewOnly && Array.isArray(moveTargetOptions) && moveTargetOptions.length > 0 && onUpdate && (
                 <div className="pt-3 border-t border-gray-200 space-y-2">
                   <div className="text-sm font-semibold text-gray-700">移動先を指定</div>
                   <p className="text-xs text-gray-500">ボード・列を選んで「この列に移動」でカードを移動できます（迷子列から復帰するときなど）。</p>
@@ -4674,7 +4867,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                     disabled={!selectedMoveTarget || selectedMoveTarget === task.status}
                     onClick={() => {
                       if (!selectedMoveTarget || selectedMoveTarget === task.status) return;
-                      onUpdate({ ...task, status: selectedMoveTarget });
+                      effectiveOnUpdate({ ...task, status: selectedMoveTarget });
                       setSelectedMoveTarget('');
                     }}
                     className="w-full mt-1 inline-flex items-center justify-center px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm"
@@ -4685,7 +4878,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
               )}
 
               {/* 前後列へ移動（同一パスコード） */}
-              {currentBoardId && Array.isArray(boardColumns) && boardColumns.length > 0 && typeof getColumnStatuses === 'function' && typeof getColumnPrimaryStatus === 'function' && onUpdate && (
+              {!viewOnly && currentBoardId && Array.isArray(boardColumns) && boardColumns.length > 0 && typeof getColumnStatuses === 'function' && typeof getColumnPrimaryStatus === 'function' && onUpdate && (
                 <div className="pt-3 border-t border-gray-200 space-y-2">
                   {!showPrevNextMove ? (
                     <button
@@ -4722,7 +4915,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                               disabled={!prevStatus}
                               onClick={() => {
                                 if (!prevStatus) return;
-                                onUpdate({ ...task, status: prevStatus });
+                                effectiveOnUpdate({ ...task, status: prevStatus });
                                 setShowPrevNextMove(false);
                               }}
                               className="flex-1 px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 text-sm font-medium"
@@ -4734,7 +4927,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                               disabled={!nextStatus}
                               onClick={() => {
                                 if (!nextStatus) return;
-                                onUpdate({ ...task, status: nextStatus });
+                                effectiveOnUpdate({ ...task, status: nextStatus });
                                 setShowPrevNextMove(false);
                               }}
                               className="flex-1 px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-gray-800 text-sm font-medium"
@@ -4752,7 +4945,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                 </div>
               )}
 
-              {onMasterDelete && (
+              {!viewOnly && onMasterDelete && (
                 <div className="pt-2">
                   <button
                     type="button"
@@ -4791,6 +4984,7 @@ function getAllowedEmails() {
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSignInLoading, setIsSignInLoading] = useState(false);
@@ -4844,6 +5038,7 @@ export default function App() {
     // デモ用URL（/demodeta/demo または /kiyota/demo）ではログインなしで利用できるようにする
     if (isDemoLoginBypass) {
       setCurrentUser('デモユーザー');
+      setCurrentUserEmail('');
       setIsLoggedIn(true);
       setIsAuthLoading(false);
       return;
@@ -4857,6 +5052,16 @@ export default function App() {
         window.location.hostname === '');
     if (isLocalHost) {
       setCurrentUser('ローカルユーザー');
+      setCurrentUserEmail('');
+      setIsLoggedIn(true);
+      setIsAuthLoading(false);
+      return;
+    }
+
+    // スマートフォン・タブレットの場合は Google ログインを免除し、そのまま利用可能にする（PC のみログイン必須）
+    if (isMobileOrNarrow()) {
+      setCurrentUser('現場端末');
+      setCurrentUserEmail('');
       setIsLoggedIn(true);
       setIsAuthLoading(false);
       return;
@@ -4880,6 +5085,7 @@ export default function App() {
         setAuthError('');
         if (!user) {
           setCurrentUser('');
+          setCurrentUserEmail('');
           setIsLoggedIn(false);
           setIsAuthLoading(false);
           return;
@@ -4895,6 +5101,7 @@ export default function App() {
           }
         }
         setCurrentUser(user.displayName || user.email || 'ログインユーザー');
+        setCurrentUserEmail(user.email || '');
         setIsLoggedIn(true);
         setIsAuthLoading(false);
       });
@@ -4954,7 +5161,7 @@ export default function App() {
         {isNfcStandalone ? (
           <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         ) : (
-          <KanbanApp currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
+          <KanbanApp currentUser={currentUser} currentUserEmail={currentUserEmail} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         )}
       </div>
     </>

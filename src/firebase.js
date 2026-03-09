@@ -42,7 +42,11 @@ export function isFirebaseConfigured() {
   return !!(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId);
 }
 
-/** スマホ・タブレットではポップアップが不安定なためリダイレクト認証を使う */
+/**
+ * スマホ・タブレット判定。
+ * - 認証: PC のみ Google ログイン必須・スマホ/タブレットはログイン免除（App.jsx で使用）。
+ * - ログイン方式: スマホ・タブレットではポップアップが不安定なため signInWithRedirect を使う。
+ */
 export function isMobileOrNarrow() {
   if (typeof navigator === 'undefined' || !navigator.userAgent) return false;
   const ua = navigator.userAgent;
