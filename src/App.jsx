@@ -288,9 +288,17 @@ const CAR_MODELS = {
 
 // --- 担当者マスター ---
 // 受付担当者はログインユーザーに固定せず、任意の一覧から選択する（初期値はFirestoreで各PC共通に同期される）
+// 以下の4名は受付担当者として必ず含め、Firestore で消えないようにする
 const RECEPTION_STAFF_OPTIONS = ['米田', '鶴田', 'あすか', '佃'];
 const BODY_STAFF_OPTIONS = ['木下', '竹馬', 'チャス', 'アビアン'];   // 板金担当者
 const PAINT_STAFF_OPTIONS = ['野中', '小田', '佐藤', 'アグン', 'リズキ'];    // 塗装担当者
+
+// 受付担当者リストに必ず含める4名をマージ（Firestore が空でも消えないようにする）
+function ensureReceptionStaffBase(list) {
+  const base = Array.isArray(list) ? list : [];
+  const extra = base.filter((s) => typeof s === 'string' && !RECEPTION_STAFF_OPTIONS.includes(s));
+  return [...RECEPTION_STAFF_OPTIONS, ...extra];
+}
 
 // --- カードの色オプション（全コンポーネント共通）---
 const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray-100', 'bg-red-100'];
@@ -511,8 +519,9 @@ function getStaffOptionsConfig() {
     if (!raw) return { reception: [...RECEPTION_STAFF_OPTIONS], body: [...BODY_STAFF_OPTIONS], paint: [...PAINT_STAFF_OPTIONS] };
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return { reception: [...RECEPTION_STAFF_OPTIONS], body: [...BODY_STAFF_OPTIONS], paint: [...PAINT_STAFF_OPTIONS] };
+    const receptionRaw = Array.isArray(parsed.reception) ? parsed.reception.filter(s => typeof s === 'string') : [];
     return {
-      reception: Array.isArray(parsed.reception) ? parsed.reception.filter(s => typeof s === 'string') : [...RECEPTION_STAFF_OPTIONS],
+      reception: ensureReceptionStaffBase(receptionRaw),
       body: Array.isArray(parsed.body) ? parsed.body.filter(s => typeof s === 'string') : [...BODY_STAFF_OPTIONS],
       paint: Array.isArray(parsed.paint) ? parsed.paint.filter(s => typeof s === 'string') : [...PAINT_STAFF_OPTIONS]
     };
@@ -524,6 +533,8 @@ function getStaffOptionsConfig() {
 function getStaffOptionsWithCurrentUser(currentUser, config, type) {
   const list = (config[type] || []);
   const base = Array.isArray(list) ? list : [];
+  // 受付担当者: ログインユーザーは表示しない。米田・鶴田・あすか・佃の4名を常に表示
+  if (type === 'reception') return base.filter(Boolean);
   const withCurrent = currentUser ? [currentUser, ...base] : base;
   return [...new Set(withCurrent)].filter(Boolean);
 }
@@ -1481,10 +1492,16 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, 
   };
 
   const handleRemove = (type, index) => {
-    setLocalConfig(prev => ({
-      ...prev,
-      [type]: (prev[type] || []).filter((_, i) => i !== index)
-    }));
+    setLocalConfig(prev => {
+      const list = prev[type] || [];
+      const name = list[index];
+      // 受付担当者の4名（米田・鶴田・あすか・佃）は削除不可
+      if (type === 'reception' && name && RECEPTION_STAFF_OPTIONS.includes(name)) return prev;
+      return {
+        ...prev,
+        [type]: list.filter((_, i) => i !== index)
+      };
+    });
   };
 
   const labels = { reception: '受付担当者', body: '鈑金担当者', paint: '塗装担当者' };
@@ -1514,7 +1531,7 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, 
         )}
       </div>
       <p className="text-sm text-gray-600 mb-4">
-        カード作成・カード詳細の「受付担当者」「鈑金担当者」「塗装担当者」のプルダウンに表示する項目を追加・削除できます。ログイン中のアカウント（受付担当者）は常に先頭に表示されます。
+        カード作成・カード詳細の「受付担当者」「鈑金担当者」「塗装担当者」のプルダウンに表示する項目を追加・削除できます。受付担当者の「米田・鶴田・あすか・佃」は常に表示され、削除できません。
       </p>
       <div className="space-y-6">
         {types.map(type => (
@@ -2268,8 +2285,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
             if (prev && Array.isArray(prev[key]) && prev[key].length > 0) return prev[key];
             return key === 'reception' ? [...RECEPTION_STAFF_OPTIONS] : fallbackEmpty;
           };
+          const receptionRaw = fromDoc('reception', []);
           const next = {
-            reception: fromDoc('reception', []),
+            reception: ensureReceptionStaffBase(receptionRaw),
             body: fromDoc('body', []),
             paint: fromDoc('paint', []),
           };
@@ -2314,10 +2332,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     setTimeout(() => setSettingsSaveToast(''), 4000);
   };
   const handleSaveStaffOptions = async (nextConfig) => {
-    setStaffOptionsConfig(nextConfig);
+    // 受付担当者は米田・鶴田・あすか・佃の4名を必ず含めてFirestoreに保存（消えないようにする）
+    const merged = {
+      ...nextConfig,
+      reception: ensureReceptionStaffBase(nextConfig?.reception || []),
+    };
+    setStaffOptionsConfig(merged);
     if (isFirebaseConfigured()) {
       try {
-        await upsertDocument('meta', 'staffOptions', nextConfig);
+        await upsertDocument('meta', 'staffOptions', merged);
         showSettingsToast('担当者一覧を保存しました（他PCと共有されます）');
       } catch (e) {
         showSettingsToast('保存に失敗しました。通信を確認してください。');
@@ -3586,14 +3609,20 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                       });
                       const totalCount = sortedTasks.length;
                       return (
-                        <div key={col.id} style={{ minWidth: `${columnMinWidth}px` }} className={`min-w-0 flex-1 flex flex-col rounded-md border border-gray-200 flex-shrink ${currentBoardId === 'planning' ? 'bg-gray-400' : 'bg-gray-50'}`} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col)}>
+                        <div
+                          key={col.id}
+                          style={{ minWidth: `${columnMinWidth}px` }}
+                          className={`flex flex-col rounded-md border border-gray-200 flex-shrink-0 ${currentBoardId === 'planning' ? 'bg-gray-400' : 'bg-gray-50'}`}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleDrop(e, col)}
+                        >
                           <div className={`p-3 font-semibold flex justify-between items-center text-sm border-b border-gray-200 rounded-t-md ${currentBoardId === 'planning' ? 'bg-white text-gray-800' : 'bg-gray-100 text-gray-700'}`}>
                             <div className="truncate pr-2" title={getColumnName(col, useIndonesian)}>{getColumnName(col, useIndonesian)}</div>
                             <div className={`text-xs px-1.5 py-0.5 rounded-full border ${currentBoardId === 'planning' ? 'bg-gray-100 text-gray-600 border-gray-300' : 'bg-white text-gray-500 border-gray-200'}`}>
                               {totalCount}
                             </div>
                           </div>
-                          <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[100px]">
+                          <div className="flex-1 p-2 space-y-2 min-h-[100px]">
                             {enableWeekGrouping ? (
                               (() => {
                                 const groupsMap = {};
