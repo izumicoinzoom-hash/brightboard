@@ -3,3 +3,5 @@ node_modules
 .env.demo
 .env.local
 .env.*.local
+__pycache__/
+*.pyc

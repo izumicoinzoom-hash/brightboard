@@ -39,3 +39,21 @@ npm run build
 ```bash
 npm run preview
 ```
+
+## デプロイ（Python スクリプト）
+
+Python 3 を使った手動デプロイも可能です。
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+# .env を編集してサーバー情報を入力
+
+# まずドライランで動作確認（推奨）
+python main.py --dry-run
+
+# 本番実行
+python main.py
+```
+
+GitHub Actions による自動デプロイについては `Xserverデプロイ手順.md` を参照してください。
