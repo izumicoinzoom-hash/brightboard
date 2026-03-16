@@ -1394,10 +1394,42 @@ function ColumnEditPanel({ boardColumnsConfig, setBoardColumnsConfig, columnStat
       return;
     }
     const statusesToRemove = getStatuses(selectedBoardId, col);
-    const firstCol = columns[0];
-    const primaryStatus = firstCol ? getPrimary(selectedBoardId, firstCol) : 'received';
-    if (window.confirm(`列「${col.name}」を削除しますか？\nこの列にいるカードは「${firstCol?.name}」に移動されます。`)) {
-      setTasks(prev => prev.map(t => (statusesToRemove.includes(t.status) ? { ...t, status: primaryStatus } : t)));
+    // 削除対象列と同じ列を先頭にしないよう、削除対象以外の最初の列を移動先にする
+    const remainingCols = columns.filter(c => c.id !== col.id);
+    const targetCol = remainingCols[0];
+    const primaryStatus = targetCol ? getPrimary(selectedBoardId, targetCol) : null;
+    if (!primaryStatus) {
+      window.alert('移動先の列が見つかりません。');
+      return;
+    }
+    // このボードに固有のステータスのみ対象にし、他ボードと共有されたステータスのカードは巻き込まない
+    const otherBoardStatuses = new Set();
+    BOARD_ORDER.forEach(bid => {
+      if (bid === selectedBoardId || bid === 'orphan') return;
+      const board = BOARDS[bid];
+      if (!board || !Array.isArray(board.columns)) return;
+      board.columns.forEach(c => {
+        const sts = Array.isArray(c.statuses) ? c.statuses : [c.id];
+        sts.forEach(s => otherBoardStatuses.add(s));
+      });
+    });
+    const safeStatusesToRemove = statusesToRemove.filter(s => !otherBoardStatuses.has(s));
+    if (safeStatusesToRemove.length === 0 && statusesToRemove.length > 0) {
+      if (!window.confirm(`列「${col.name}」のステータスは他ボードと共有されています。\n列の表示は削除しますが、カードのステータスは変更しません。よろしいですか？`)) return;
+      setBoardColumnsConfig(prev => ({
+        ...prev,
+        [selectedBoardId]: getColumnsForBoard(prev, selectedBoardId).filter(c => c.id !== col.id)
+      }));
+      return;
+    }
+    if (window.confirm(`列「${col.name}」を削除しますか？\nこの列にいるカードは「${targetCol?.name}」に移動されます。`)) {
+      setTasks(prev => prev.map(t => {
+        if (!safeStatusesToRemove.includes(t.status)) return t;
+        const updated = { ...t, status: primaryStatus };
+        // Firestoreにも反映して永続化する
+        if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+        return updated;
+      }));
       setBoardColumnsConfig(prev => ({
         ...prev,
         [selectedBoardId]: getColumnsForBoard(prev, selectedBoardId).filter(c => c.id !== col.id)
@@ -2157,10 +2189,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     });
   }, [reservations]);
 
+  // 納車完了履歴: 納車ワークフロー（delivery_wait/delivery_today/delivered_*）を経たカードのみ表示
+  // 他ボードで completed になっただけのカードは納車履歴に表示しない
+  const DELIVERY_SPECIFIC_STATUSES = new Set(['delivery_wait', 'delivery_today', 'delivered_unpaid', 'delivered_paid']);
   const deliveryCompletedTasks = useMemo(() => {
     if (currentBoardId !== 'delivery') return [];
     return tasks
-      .filter((t) => t.status === 'completed')
+      .filter((t) => {
+        if (!t || t.status !== 'completed') return false;
+        // statusHistory に納車ボード固有のステータスが1つでもあれば、納車ワークフローを経たカード
+        const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+        return hist.some(h => h && DELIVERY_SPECIFIC_STATUSES.has(h.status));
+      })
       .slice()
       .sort((a, b) => {
         const getTime = (task) => {
@@ -2173,10 +2213,77 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       });
   }, [currentBoardId, tasks]);
 
+  // --- 異常検知: 後工程にいたカードが入庫済みに戻っている場合を検出 ---
+  const LATER_STAGE_STATUSES = new Set([
+    'b_wait', 'b_doing', 'b_done_p_wait', 'p_only', 'prep', 'prep_done', 'prep_p',
+    'painting', 'assembly_wait', 'assembly', 'polish', 'polishing',
+    'completed', 'assembly_done_both', 'assembly_done_nuri', 'polish_done',
+    'delivery_wait', 'delivery_today', 'delivered_unpaid', 'delivered_paid'
+  ]);
+  const anomalousReceivedTasks = useMemo(() => {
+    return tasks.filter(t => {
+      if (!t || t.status !== 'received') return false;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      // 後工程のステータスを経たことがあるのに received に戻っているカードを検出
+      return hist.some(h => h && LATER_STAGE_STATUSES.has(h.status));
+    });
+  }, [tasks]);
+
+  const [showAnomalyBanner, setShowAnomalyBanner] = useState(true);
+  const [isRecoveryPanelOpen, setIsRecoveryPanelOpen] = useState(false);
+
+  // 異常カードを直前の適切なステータスに一括復元する
+  const batchRestoreAnomalousTasks = () => {
+    if (anomalousReceivedTasks.length === 0) return;
+    const msg = `${anomalousReceivedTasks.length} 件のカードを、入庫済みに来る前のステータスに戻します。よろしいですか？`;
+    if (!window.confirm(msg)) return;
+    let restoredCount = 0;
+    setTasks(prev => prev.map(t => {
+      if (!t || t.status !== 'received') return t;
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      if (!hist.some(h => h && LATER_STAGE_STATUSES.has(h.status))) return t;
+      // statusHistory を逆順で走査し、received 以外の最新ステータスを復元先にする
+      const restoreEntry = [...hist].reverse().find(h => h && h.status && h.status !== 'received');
+      if (!restoreEntry) return t;
+      restoredCount++;
+      const updated = transitionTaskStatus(t, restoreEntry.status);
+      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+      return updated;
+    }));
+    showSettingsToast(`${restoredCount}件のカードを復元しました`);
+  };
+
+  // データエクスポート: 全カードの現状をJSONでダウンロード
+  const exportTasksAsJson = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      taskCount: tasks.length,
+      tasks: tasks.map(t => ({ ...t }))
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brightboard-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showSettingsToast('バックアップをダウンロードしました');
+  };
+
   const restoreFromDeliveryHistory = (taskId) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.status !== 'completed') return;
-    const prevStatus = getPreviousStatus(task);
+    // 復元先は納車ボードのステータスのみ許可（他ボードのステータスに戻ることを防止）
+    const DELIVERY_VALID_RESTORE = new Set(['delivery_wait', 'delivery_today', 'delivered_unpaid', 'delivered_paid']);
+    let prevStatus = getPreviousStatus(task);
+    if (!DELIVERY_VALID_RESTORE.has(prevStatus)) {
+      // statusHistory を遡って最後の納車ボードステータスを探す
+      const hist = Array.isArray(task.statusHistory) ? task.statusHistory : [];
+      const lastDeliveryEntry = [...hist].reverse().find(h => h && DELIVERY_VALID_RESTORE.has(h.status));
+      prevStatus = lastDeliveryEntry ? lastDeliveryEntry.status : 'delivery_wait';
+    }
     const updated = transitionTaskStatus(task, prevStatus);
     setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     if (isFirebaseConfigured()) {
@@ -2823,7 +2930,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     return Array.isArray(list) ? list : [col.id];
   };
   const getColumnPrimaryStatus = (col) => {
-    if (!col || !col.id) return 'received';
+    if (!col || !col.id) return null;
     const list = getColumnStatuses(col);
     return (list && list[0]) ? list[0] : col.id;
   };
@@ -3036,6 +3143,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     e.preventDefault();
     if (isViewOnly || !draggedTaskId) return;
     const status = getColumnPrimaryStatus(col);
+    if (!status) { setDraggedTaskId(null); return; }
     let newInDate;
     if (currentBoardId === 'planning' && ['mon','tue','wed','thu','fri','sat','sun'].includes(col.id)) {
       const dayMap = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
@@ -3070,7 +3178,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     const targetBoardId = currentView === 'gantt' ? 'planning' : currentBoardId;
     const cols = getColumnsForBoard(boardColumnsConfig, targetBoardId);
     const firstCol = cols[0];
-    let initialStatus = firstCol ? getColumnPrimaryStatus(firstCol) : 'received';
+    let initialStatus = (firstCol && getColumnPrimaryStatus(firstCol)) || 'unscheduled';
     if (targetBoardId === 'planning' && newTask.inDate) {
       const d = new Date(newTask.inDate);
       if (!Number.isNaN(d.getTime())) {
@@ -3131,7 +3239,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     setTasks(prev => prev.map(t => {
       if (t.id !== updatedTask.id) return t;
       // 入庫ボードでは、入庫日が入ったカードを「入庫日未定」のままにしないよう、曜日カラムへ自動で移動
-      if (currentBoardId === 'planning' && updatedTask.inDate && (!updatedTask.status || updatedTask.status === t.status)) {
+      // ただし、他ボード由来のステータスを持つカードは巻き込まない
+      const PLANNING_STATUSES_SET = new Set(['unscheduled', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun', 'received']);
+      if (currentBoardId === 'planning' && PLANNING_STATUSES_SET.has(t.status) && updatedTask.inDate && (!updatedTask.status || updatedTask.status === t.status)) {
         const d = new Date(updatedTask.inDate);
         if (!Number.isNaN(d.getTime())) {
           const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -3534,6 +3644,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                           このNFCタグに対応するカードが見つかりませんでした。カードが削除されていないか確認してください。
                         </div>
                       )}
+                    </div>
+                  )}
+                  {showAnomalyBanner && anomalousReceivedTasks.length > 0 && (
+                    <div className="flex-shrink-0 flex items-center justify-between gap-3 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-sm">
+                      <div className="flex items-center gap-2 text-red-800">
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <span>後工程にいたカードが「入庫済み」に戻っています（{anomalousReceivedTasks.length}件）。設定画面の「データ復旧」から一括復元できます。</span>
+                      </div>
+                      <button type="button" onClick={() => setShowAnomalyBanner(false)} className="text-red-400 hover:text-red-600 flex-shrink-0 text-xs">✕ 閉じる</button>
                     </div>
                   )}
                   {currentBoardId === 'planning' && (unscheduledWithInDate.length > 0 || unscheduledFromOtherBoard.length > 0) && (
@@ -4000,6 +4119,56 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                         </div>
                       </div>
                       <p className="text-xs text-gray-400 mt-2">判定: 幅768px未満＝スマホ、768px〜1023px＝タブレット、1024px以上＝パソコン</p>
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">データ復旧</h3>
+                      <p className="text-sm text-gray-500 mb-3">
+                        後工程にいたカードが「入庫済み」に戻ってしまった場合、履歴をもとに直前のステータスに一括復元できます。
+                      </p>
+                      {anomalousReceivedTasks.length > 0 ? (
+                        <>
+                          <div className="mb-3 px-3 py-2 rounded bg-red-50 border border-red-200 text-sm text-red-800">
+                            {anomalousReceivedTasks.length}件の異常カードを検出しました
+                          </div>
+                          <div className="mb-3 max-h-40 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100 text-xs">
+                            {anomalousReceivedTasks.map(t => {
+                              const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+                              const lastLater = [...hist].reverse().find(h => h && h.status && h.status !== 'received');
+                              return (
+                                <div key={t.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                  <span className="truncate">{t.assignee || '未設定'} / {t.car || ''} {t.number || ''}</span>
+                                  <span className="text-gray-500 flex-shrink-0">← {lastLater ? lastLater.status : '不明'}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={batchRestoreAnomalousTasks}
+                            className="w-full px-4 py-3 rounded-lg bg-red-600 text-white hover:bg-red-700 font-medium text-sm"
+                          >
+                            {anomalousReceivedTasks.length}件を直前のステータスに一括復元
+                          </button>
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 rounded bg-green-50 border border-green-200 text-sm text-green-800">
+                          異常なカードは検出されませんでした
+                        </div>
+                      )}
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">データバックアップ</h3>
+                      <p className="text-sm text-gray-500 mb-3">
+                        全カードの現在の状態をJSONファイルとしてダウンロードします。不具合発生時の復旧用に定期的にバックアップを取ることを推奨します。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={exportTasksAsJson}
+                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center justify-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        バックアップをダウンロード（{tasks.length}件）
+                      </button>
                     </section>
                     <section>
                       <h3 className="text-sm font-semibold text-gray-700 mb-2">カード移動履歴</h3>
