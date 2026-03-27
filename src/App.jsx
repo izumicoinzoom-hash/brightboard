@@ -16,6 +16,8 @@ import {
   upsertDocument,
   deleteDocument
 } from './firebase';
+import { IMEInput, IMETextarea } from './IMEInput.jsx';
+import { InvoiceModal, InvoiceSettingsPanel } from './InvoiceModal.jsx';
 
 // --- アプリ名（看板ボードのタイトルなどで使用）---
 const APP_NAME = 'BrightBoard';
@@ -766,8 +768,8 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
   const startDateStr = dates[0].toISOString().split('T')[0];
 
   const goToToday = () => setViewOffsetDays(0);
-  const goPrev = () => setViewOffsetDays((prev) => Math.max(viewStartOffset, prev - 7));
-  const goNext = () => setViewOffsetDays((prev) => Math.min(60, prev + 7)); // 約2ヶ月先まで
+  const goPrev = () => setViewOffsetDays((prev) => Math.max(-60, prev - 7)); // 過去2ヶ月まで
+  const goNext = () => setViewOffsetDays((prev) => Math.min(60, prev + 7)); // 未来2ヶ月まで
 
   const formatDateLocal = (date) => {
     const y = date.getFullYear();
@@ -1251,12 +1253,11 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
       <div className="mb-6 space-y-2">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">車両の追加</div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
+          <IMEInput
             className="border border-gray-300 rounded px-3 py-1.5 text-sm w-56"
             placeholder="車両名（例: N-BOX 熊本580あ1234）"
             value={newCarName}
-            onChange={(e) => setNewCarName(e.target.value)}
+            onChange={(v) => setNewCarName(v)}
           />
           <select
             className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
@@ -1283,11 +1284,10 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
               <div className="flex-1 min-w-0">
                 {editingCarId === car.id ? (
                   <div className="space-y-1">
-                    <input
-                      type="text"
+                    <IMEInput
                       className="border border-gray-300 rounded px-2 py-1 text-xs w-full"
                       value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
+                      onChange={(v) => setEditingName(v)}
                     />
                     <select
                       className="border border-gray-300 rounded px-2 py-1 text-xs bg-white"
@@ -1460,12 +1460,11 @@ function ColumnEditPanel({ boardColumnsConfig, setBoardColumnsConfig, columnStat
       <div className="mb-4">
         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">列の追加</div>
         <div className="flex gap-2">
-          <input
-            type="text"
+          <IMEInput
             className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm"
             placeholder="列の名前（例: 検討中）"
             value={newColumnName}
-            onChange={(e) => setNewColumnName(e.target.value)}
+            onChange={(v) => setNewColumnName(v)}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddColumn())}
           />
           <button type="button" onClick={handleAddColumn} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 whitespace-nowrap">
@@ -1570,12 +1569,11 @@ function StaffOptionsPanel({ staffOptionsConfig, setStaffOptionsConfig, onBack, 
           <div key={type} className="border border-gray-200 rounded-lg p-4">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">{labels[type]}</h3>
             <div className="flex gap-2 mb-2">
-              <input
-                type="text"
+              <IMEInput
                 className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm"
                 placeholder="名前を入力して追加"
                 value={newName[type] || ''}
-                onChange={(e) => setNewName(prev => ({ ...prev, [type]: e.target.value }))}
+                onChange={(v) => setNewName(prev => ({ ...prev, [type]: v }))}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAdd(type))}
               />
               <button type="button" onClick={() => handleAdd(type)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 whitespace-nowrap">追加</button>
@@ -1720,15 +1718,15 @@ function CalendarLinkModal({ onClose }) {
           {successMessage && <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">{successMessage}</div>}
           <div>
             <label className="block text-gray-700 font-medium mb-1">お客様名</label>
-            <input type="text" className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: 山田 太郎" value={assignee} onChange={(e) => setAssignee(e.target.value)} />
+            <IMEInput className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: 山田 太郎" value={assignee} onChange={(v) => setAssignee(v)} />
           </div>
           <div>
             <label className="block text-gray-700 font-medium mb-1">車種</label>
-            <input type="text" className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: ノート" value={car} onChange={(e) => setCar(e.target.value)} />
+            <IMEInput className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: ノート" value={car} onChange={(v) => setCar(v)} />
           </div>
           <div>
             <label className="block text-gray-700 font-medium mb-1">ナンバー</label>
-            <input type="text" className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: 熊本500あ1234" value={number} onChange={(e) => setNumber(e.target.value)} />
+            <IMEInput className="w-full border border-gray-300 rounded px-3 py-2" placeholder="例: 熊本500あ1234" value={number} onChange={(v) => setNumber(v)} />
           </div>
           <div className="flex gap-4">
             <div className="flex-1">
@@ -1858,11 +1856,11 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">内容</label>
-            <textarea
+            <IMETextarea
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm min-h-[100px] resize-y"
               placeholder="伝えたいことを入力..."
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(v) => setMessage(v)}
               disabled={isSending}
             />
           </div>
@@ -2326,6 +2324,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [isFleetSettingsOpen, setIsFleetSettingsOpen] = useState(false);
   const [isColumnEditOpen, setIsColumnEditOpen] = useState(false);
   const [isStaffOptionsOpen, setIsStaffOptionsOpen] = useState(false);
+  const [isInvoiceSettingsOpen, setIsInvoiceSettingsOpen] = useState(false);
   const [useIndonesian, setUseIndonesian] = useState(() => {
     try {
       return (typeof localStorage !== 'undefined' && localStorage.getItem(LANG_KEY) === 'id');
@@ -2704,6 +2703,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       key={task.id}
       draggable={!isViewOnly}
       onDragStart={(e) => handleDragStart(e, task.id)}
+      onDragEnd={() => setDraggedTaskId(null)}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; }}
       onDrop={(e) => {
         if (isViewOnly) return;
@@ -3016,20 +3016,19 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     return tasks.filter(t => {
       if (!t || t.status !== 'unscheduled' || !t.inDate || Number.isNaN(new Date(t.inDate).getTime())) return false;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
-      if (hist.length === 0) return true;
-      const last = hist[hist.length - 1];
-      const prevStatus = last && last.status ? last.status : '';
-      return PLANNING_STATUSES.has(prevStatus);
+      // 他ボード由来のカードは除外（unscheduledFromOtherBoard で扱う）
+      if (hist.some(h => h && h.status && !PLANNING_STATUSES.has(h.status))) return false;
+      return true;
     });
   }, [tasks]);
+  // 改善版: 全履歴を走査して非planningステータスを検出（最後の1件だけでなく、納車完了等からの巻き戻しも検知）
   const unscheduledFromOtherBoard = useMemo(() => {
     return tasks.filter(t => {
       if (!t || t.status !== 'unscheduled') return false;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
       if (hist.length === 0) return false;
-      const last = hist[hist.length - 1];
-      const prevStatus = last && last.status ? last.status : '';
-      return prevStatus && !PLANNING_STATUSES.has(prevStatus);
+      // 全履歴を走査: 1つでも非planningステータスがあれば「他ボードから来たカード」と判定
+      return hist.some(h => h && h.status && !PLANNING_STATUSES.has(h.status));
     });
   }, [tasks]);
 
@@ -3039,10 +3038,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     setTasks(prev => prev.map(t => {
       if (!t || t.status !== 'unscheduled' || !t.inDate) return t;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
-      if (hist.length > 0) {
-        const prevStatus = hist[hist.length - 1]?.status;
-        if (prevStatus && !PLANNING_STATUSES.has(prevStatus)) return t;
-      }
+      // 他ボード由来のカードは曜日振り分けしない（別の復旧ボタンで対応）
+      if (hist.some(h => h && h.status && !PLANNING_STATUSES.has(h.status))) return t;
       const d = new Date(t.inDate);
       if (Number.isNaN(d.getTime())) return t;
       const dayStatus = dayNames[d.getDay()];
@@ -3056,22 +3053,29 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
 
   const restoreUnscheduledToPreviousColumn = () => {
     if (unscheduledFromOtherBoard.length === 0) return;
-    const msg = `他ボードから入庫日未定に来たカード ${unscheduledFromOtherBoard.length} 件を、直前の列（鈑金・塗装・納車など）に戻します。よろしいですか？`;
+    const msg = `他ボードから入庫日未定に来たカード ${unscheduledFromOtherBoard.length} 件を、直前の工程（鈑金・塗装・納車完了など）に戻します。よろしいですか？`;
     if (!window.confirm(msg)) return;
     setTasks(prev => prev.map(t => {
       if (!t || t.status !== 'unscheduled') return t;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
       if (hist.length === 0) return t;
-      const last = hist[hist.length - 1];
-      const prevStatus = last && last.status ? last.status : null;
-      if (!prevStatus || PLANNING_STATUSES.has(prevStatus)) return t;
-      const newHistory = hist.slice(0, -1);
-      const updated = { ...t, status: prevStatus, statusHistory: newHistory, statusEnteredAt: last.enteredAt || t.statusEnteredAt };
+      // 全履歴を逆順で走査し、最も新しい非planningステータスを復元先にする
+      const restoreEntry = [...hist].reverse().find(h => h && h.status && !PLANNING_STATUSES.has(h.status));
+      if (!restoreEntry) return t;
+      const restoreStatus = restoreEntry.status;
+      const updated = transitionTaskStatus(t, restoreStatus);
       if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
       return updated;
     }));
-    showSettingsToast(`他ボードから来た${unscheduledFromOtherBoard.length}件を直前の列に戻しました`);
+    showSettingsToast(`他ボードから来た${unscheduledFromOtherBoard.length}件を直前の工程に戻しました`);
   };
+
+  // 入庫日未定にある全カード（履歴が壊れているカードも含む手動復旧用）
+  const allUnscheduledTasks = useMemo(() => {
+    return tasks.filter(t => t && t.status === 'unscheduled');
+  }, [tasks]);
+  const [showUnscheduledRecovery, setShowUnscheduledRecovery] = useState(false);
+  const [unscheduledRecoverySelection, setUnscheduledRecoverySelection] = useState({});
 
   const allColumnOptions = useMemo(() => {
     const opts = [];
@@ -3137,13 +3141,38 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     return transitionTaskStatusWithOperator(task, newStatus, extra, operatorName);
   };
 
-  const handleDragStart = (e, id) => { if (isViewOnly) return; setDraggedTaskId(id); e.dataTransfer.effectAllowed = 'move'; };
+  const handleDragStart = (e, id) => {
+    if (isViewOnly) return;
+    setDraggedTaskId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    // ドラッグキャンセル時（Esc・画面外等）に draggedTaskId を確実にクリアする
+    const cleanup = () => { setDraggedTaskId((prev) => prev === id ? null : prev); e.target.removeEventListener('dragend', cleanup); };
+    e.target.addEventListener('dragend', cleanup);
+  };
   const handleDragOver = (e) => { e.preventDefault(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; };
   const handleDrop = (e, col) => {
     e.preventDefault();
     if (isViewOnly || !draggedTaskId) return;
     const status = getColumnPrimaryStatus(col);
     if (!status) { setDraggedTaskId(null); return; }
+    const currentTask = tasks.find(t => t.id === draggedTaskId);
+    if (!currentTask) {
+      setDraggedTaskId(null);
+      return;
+    }
+    // ボードスコープチェック: 現在のボードの列に属さないカードを別ボードの列に落とすことを防止
+    // （例: 納車済みカードが入庫日未定に移動するケースを防ぐ）
+    const currentBoardCols = getColumnsForBoard(boardColumnsConfig, currentBoardId);
+    const currentBoardAllStatuses = new Set();
+    (currentBoardCols || []).forEach(c => {
+      const sts = getColumnStatuses(c);
+      if (Array.isArray(sts)) sts.forEach(s => currentBoardAllStatuses.add(s));
+    });
+    if (!currentBoardAllStatuses.has(currentTask.status)) {
+      // ドラッグ元カードが現在のボードに属していない → 安全のため移動しない
+      setDraggedTaskId(null);
+      return;
+    }
     let newInDate;
     if (currentBoardId === 'planning' && ['mon','tue','wed','thu','fri','sat','sun'].includes(col.id)) {
       const dayMap = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
@@ -3154,11 +3183,6 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       d.setDate(d.getDate() + diff);
       const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
       newInDate = `${y}-${m}-${day}`;
-    }
-    const currentTask = tasks.find(t => t.id === draggedTaskId);
-    if (!currentTask) {
-      setDraggedTaskId(null);
-      return;
     }
     const base = status && status !== currentTask.status
       ? transitionTaskStatus(currentTask, status)
@@ -3236,6 +3260,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
 
   const handleTaskUpdate = (updatedTask) => {
     const prevTask = tasks.find(t => t.id === updatedTask.id) || null;
+    // setTasks 内で処理した結果を保持し、Firestore にも同じデータを書き込む
+    let processedTask = null;
     setTasks(prev => prev.map(t => {
       if (t.id !== updatedTask.id) return t;
       // 入庫ボードでは、入庫日が入ったカードを「入庫日未定」のままにしないよう、曜日カラムへ自動で移動
@@ -3248,33 +3274,39 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           const nextStatus = dayNames[d.getDay()];
           if (nextStatus && nextStatus !== t.status) {
             const merged = { ...t, ...updatedTask, status: nextStatus };
-            return transitionTaskStatus(t, nextStatus, merged);
+            processedTask = transitionTaskStatus(t, nextStatus, merged);
+            return processedTask;
           }
         }
       }
       // ステータスが変わる場合は滞在時間を履歴に追加しつつ更新
       if (updatedTask.status && updatedTask.status !== t.status) {
-        return transitionTaskStatus(t, updatedTask.status, updatedTask);
+        processedTask = transitionTaskStatus(t, updatedTask.status, updatedTask);
+        return processedTask;
       }
       // ステータスが変わらない場合はその他の項目だけ上書きし、履歴系は保持
-      return {
+      processedTask = {
         ...t,
         ...updatedTask,
         statusEnteredAt: t.statusEnteredAt,
         statusHistory: t.statusHistory
       };
+      return processedTask;
     }));
+
+    // Firestore には処理後の正しいデータを書き込む（ステータスや履歴がローカルと一致するようにする）
+    const taskToSave = processedTask || updatedTask;
 
     // 代車情報とガントチャート予約の連動
     const hasLoaner =
-      updatedTask.loanerType &&
-      updatedTask.loanerType !== 'none' &&
-      updatedTask.loanerCarId &&
-      updatedTask.inDate;
+      taskToSave.loanerType &&
+      taskToSave.loanerType !== 'none' &&
+      taskToSave.loanerCarId &&
+      taskToSave.inDate;
 
     setReservations(prev => {
-      const current = prev.filter(r => r.taskId === updatedTask.id);
-      const others = prev.filter(r => r.taskId !== updatedTask.id);
+      const current = prev.filter(r => r.taskId === taskToSave.id);
+      const others = prev.filter(r => r.taskId !== taskToSave.id);
 
       // 代車なしに変更された場合は予約を削除
       if (!hasLoaner) {
@@ -3289,12 +3321,12 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       const baseId = current[0]?.id || `res${Date.now()}`;
       const reservation = {
         id: baseId,
-        carId: updatedTask.loanerCarId,
-        taskId: updatedTask.id,
-        taskName: `${updatedTask.assignee || '未設定'} ${updatedTask.car || '新規車両'}`.trim(),
-        start: updatedTask.inDate,
-        end: updatedTask.outDate || updatedTask.inDate,
-        color: updatedTask.color || 'bg-blue-400'
+        carId: taskToSave.loanerCarId,
+        taskId: taskToSave.id,
+        taskName: `${taskToSave.assignee || '未設定'} ${taskToSave.car || '新規車両'}`.trim(),
+        start: taskToSave.inDate,
+        end: taskToSave.outDate || taskToSave.inDate,
+        color: taskToSave.color || 'bg-blue-400'
       };
 
       if (isFirebaseConfigured()) {
@@ -3305,9 +3337,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     });
 
     if (isFirebaseConfigured()) {
-      upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
-      if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, updatedTask.status)) {
-        syncCardToSheet(updatedTask);
+      upsertDocument('boards/main/tasks', taskToSave.id, taskToSave);
+      if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, taskToSave.status)) {
+        syncCardToSheet(taskToSave);
       }
     }
   };
@@ -3315,6 +3347,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const switchBoard = (boardId) => {
     setCurrentBoardId(boardId);
     setSelectedTaskId(null);
+    setDraggedTaskId(null);
     setIsHeaderMenuOpen(false);
     setIsProjectMenuOpen(false);
     setCurrentView('board');
@@ -3426,7 +3459,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                 <div className="space-y-3 text-sm">
                   <div>
                     <label className="block text-gray-600 mb-1">顧客名</label>
-                    <input type="text" placeholder="例: 杉村" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.assignee} onChange={(e) => setSearchFilters(f => ({ ...f, assignee: e.target.value }))} />
+                    <IMEInput placeholder="例: 杉村" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.assignee} onChange={(v) => setSearchFilters(f => ({ ...f, assignee: v }))} />
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">メーカー</label>
@@ -3437,7 +3470,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">車種</label>
-                    <input type="text" placeholder="例: ノート" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.car} onChange={(e) => setSearchFilters(f => ({ ...f, car: e.target.value }))} />
+                    <IMEInput placeholder="例: ノート" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.car} onChange={(v) => setSearchFilters(f => ({ ...f, car: v }))} />
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">受付担当者</label>
@@ -3462,7 +3495,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">ナンバー（車番）</label>
-                    <input type="text" placeholder="例: 501" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.number} onChange={(e) => setSearchFilters(f => ({ ...f, number: e.target.value }))} />
+                    <IMEInput placeholder="例: 501" className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" value={searchFilters.number} onChange={(v) => setSearchFilters(f => ({ ...f, number: v }))} />
                   </div>
                   <div>
                     <label className="block text-gray-600 mb-1">カードの色</label>
@@ -3549,7 +3582,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                     const toLabel =
                       h.toStatus &&
                       allColumnOptions.find((opt) => opt.primaryStatus === h.toStatus)?.label;
-                    const timeLabel = h.exitedAt || h.enteredAt || '';
+                    const rawTime = h.exitedAt || h.enteredAt || '';
+                    const timeLabel = rawTime ? (() => {
+                      try {
+                        const d = new Date(rawTime);
+                        if (Number.isNaN(d.getTime())) return rawTime;
+                        return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                      } catch { return rawTime; }
+                    })() : '';
                     return (
                       <div
                         key={h.id}
@@ -3655,10 +3695,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                       <button type="button" onClick={() => setShowAnomalyBanner(false)} className="text-red-400 hover:text-red-600 flex-shrink-0 text-xs">✕ 閉じる</button>
                     </div>
                   )}
-                  {currentBoardId === 'planning' && (unscheduledWithInDate.length > 0 || unscheduledFromOtherBoard.length > 0) && (
+                  {currentBoardId === 'planning' && allUnscheduledTasks.length > 0 && (
                     <div className="flex-shrink-0 flex flex-col gap-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-sm">
                       <p className="text-amber-800">
-                        入庫日未定の列に、他ボードから来たカードや入庫日入力済みのカードがあります。列だけ元に戻せます（ナンバーなど項目が消えている場合は Firestore のバックアップやドキュメント履歴での復元が必要です）。
+                        入庫日未定に {allUnscheduledTasks.length} 件のカードがあります。
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
                         {unscheduledFromOtherBoard.length > 0 && (
@@ -3667,7 +3707,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                             onClick={restoreUnscheduledToPreviousColumn}
                             className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
                           >
-                            他ボードから来たカードを直前の列に戻す（{unscheduledFromOtherBoard.length}件）
+                            他ボードから来たカードを直前の工程に戻す（{unscheduledFromOtherBoard.length}件）
                           </button>
                         )}
                         {unscheduledWithInDate.length > 0 && (
@@ -3679,7 +3719,54 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                             入庫日に合わせて曜日列へ振り分け（{unscheduledWithInDate.length}件）
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setShowUnscheduledRecovery(!showUnscheduledRecovery)}
+                          className="px-3 py-1.5 rounded bg-gray-700 text-white text-sm font-medium hover:bg-gray-800"
+                        >
+                          {showUnscheduledRecovery ? '一覧を閉じる' : `全カード一覧から手動復旧（${allUnscheduledTasks.length}件）`}
+                        </button>
                       </div>
+                      {showUnscheduledRecovery && (
+                        <div className="mt-2 max-h-60 overflow-y-auto border border-gray-200 rounded-lg bg-white divide-y divide-gray-100">
+                          {allUnscheduledTasks.map(task => {
+                            const hist = Array.isArray(task.statusHistory) ? task.statusHistory : [];
+                            const lastNonPlanning = [...hist].reverse().find(h => h && h.status && !PLANNING_STATUSES.has(h.status));
+                            const selectedStatus = unscheduledRecoverySelection[task.id] ?? (lastNonPlanning ? lastNonPlanning.status : allColumnOptions[0]?.primaryStatus ?? '');
+                            return (
+                              <div key={task.id} className="px-3 py-2 flex flex-wrap items-center gap-2">
+                                <div className="flex-1 min-w-[180px]">
+                                  <span className="font-medium text-gray-800">{task.assignee || '（未設定）'}</span>
+                                  <span className="text-gray-500 ml-1">{task.car || ''} {task.number || ''}</span>
+                                  {lastNonPlanning && <span className="text-xs text-blue-600 ml-2">元: {lastNonPlanning.status}</span>}
+                                  {!lastNonPlanning && hist.length === 0 && <span className="text-xs text-gray-400 ml-2">履歴なし</span>}
+                                </div>
+                                <select
+                                  className="border border-gray-300 rounded px-2 py-1 text-xs bg-white min-w-[180px]"
+                                  value={selectedStatus}
+                                  onChange={(e) => setUnscheduledRecoverySelection(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                >
+                                  {allColumnOptions.map((opt, i) => (
+                                    <option key={i} value={opt.primaryStatus}>{opt.label}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const status = unscheduledRecoverySelection[task.id] ?? (lastNonPlanning ? lastNonPlanning.status : allColumnOptions[0]?.primaryStatus);
+                                    if (!status) return;
+                                    handleTaskUpdate({ ...task, status });
+                                    setUnscheduledRecoverySelection(prev => { const next = { ...prev }; delete next[task.id]; return next; });
+                                  }}
+                                  className="px-2 py-1 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 flex-shrink-0"
+                                >
+                                  移動
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex gap-2 h-full min-h-0 w-full min-w-0 flex-1 overflow-x-auto">
@@ -3895,24 +3982,28 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
             className="absolute inset-0 bg-black/30"
-            onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); }}
+            onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
             aria-hidden
           />
           <div className="relative w-full max-w-md bg-white shadow-xl flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-bold text-gray-800">
-                {isLinkSettingsOpen ? 'ボード間リンク設定' : isFleetSettingsOpen ? '代車マスタ設定' : isColumnEditOpen ? '列の増減' : isStaffOptionsOpen ? '担当者一覧の編集' : '設定'}
+                {isInvoiceSettingsOpen ? '請求書設定（インボイス）' : isLinkSettingsOpen ? 'ボード間リンク設定' : isFleetSettingsOpen ? '代車マスタ設定' : isColumnEditOpen ? '列の増減' : isStaffOptionsOpen ? '担当者一覧の編集' : '設定'}
               </h2>
               <button
                 type="button"
-                onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); }}
+                onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
                 className="p-1 rounded hover:bg-gray-100 text-gray-500"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              {isStaffOptionsOpen ? (
+              {isInvoiceSettingsOpen ? (
+                <InvoiceSettingsPanel
+                  onBack={() => setIsInvoiceSettingsOpen(false)}
+                />
+              ) : isStaffOptionsOpen ? (
                 <StaffOptionsPanel
                   staffOptionsConfig={staffOptionsConfig}
                   setStaffOptionsConfig={setStaffOptionsConfig}
@@ -3981,12 +4072,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                       </p>
                       <div className="mb-3">
                         <label className="block text-xs font-medium text-gray-600 mb-1">ナンバー・車種・お客様名で全カードを検索（例: 5402, プリウス）</label>
-                        <input
-                          type="text"
+                        <IMEInput
                           className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
                           placeholder="5402 または プリウス など"
                           value={orphanSearchText}
-                          onChange={(e) => setOrphanSearchText(e.target.value)}
+                          onChange={(v) => setOrphanSearchText(v)}
                         />
                       </div>
                       {orphanSearchText.trim() && (
@@ -4072,6 +4162,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                       >
                         <Truck className="w-4 h-4" />
                         代車マスタを開く
+                      </button>
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">請求書設定（インボイス）</h3>
+                      <p className="text-sm text-gray-500 mb-3">請求書に印字する事業者名・登録番号・住所・振込先などを設定します。</p>
+                      <button
+                        type="button"
+                        onClick={() => setIsInvoiceSettingsOpen(true)}
+                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center justify-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        請求書設定を開く
                       </button>
                     </section>
                     <section>
@@ -4385,12 +4487,11 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-start">
                 <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">メーカー <span className="text-red-500">*</span></label>
                 <div className="flex-1 space-y-2">
-                  <input
-                    type="text"
+                  <IMEInput
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
                     placeholder="メーカー名で絞り込み（例: トヨタ）"
                     value={makerQuery}
-                    onChange={(e) => setMakerQuery(e.target.value)}
+                    onChange={(v) => setMakerQuery(v)}
                   />
                   <select
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm bg-white"
@@ -4414,12 +4515,11 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-start">
                 <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">モデル <span className="text-red-500">*</span></label>
                 <div className="flex-1 space-y-2">
-                  <input
-                    type="text"
+                  <IMEInput
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm disabled:bg-gray-100"
                     placeholder={formData.maker ? "車種名で絞り込み（例: プリウス）" : "先にメーカーを選択してください"}
                     value={modelQuery}
-                    onChange={(e) => setModelQuery(e.target.value)}
+                    onChange={(v) => setModelQuery(v)}
                     disabled={!formData.maker}
                   />
                   <select
@@ -4443,16 +4543,16 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
 
               <div className="flex gap-4 items-center">
                 <label className="w-32 text-right text-sm font-medium text-gray-700">カラーナンバー</label>
-                <input type="text" className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 3R2" value={formData.colorNo || ''} onChange={e => setFormData({...formData, colorNo: e.target.value})} />
+                <IMEInput className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 3R2" value={formData.colorNo || ''} onChange={v => setFormData({...formData, colorNo: v})} />
               </div>
 
               <div className="flex gap-4 items-center">
                  <label className="w-32 text-right text-sm font-medium text-gray-700">車番</label>
-                 <input type="text" className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 1234" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} />
+                 <IMEInput className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 1234" value={formData.number} onChange={v => setFormData({...formData, number: v})} />
               </div>
               <div className="flex gap-4 items-center">
                  <label className="w-32 text-right text-sm font-medium text-gray-700">顧客名</label>
-                 <input type="text" className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 山田太郎" value={formData.assignee} onChange={e => setFormData({...formData, assignee: e.target.value})} />
+                 <IMEInput className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm" placeholder="例: 山田太郎" value={formData.assignee} onChange={v => setFormData({...formData, assignee: v})} />
               </div>
               <div className="flex gap-4 items-center">
                  <label className="w-32 text-right text-sm font-medium text-gray-700">LINEリンク</label>
@@ -4479,8 +4579,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                     ))}
                   </select>
                   <div className="space-y-1">
-                    <input
-                      type="text"
+                    <IMEInput
                       className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
                       placeholder={formData.entryPrimary === '個人'
                         ? '例: 個人（紹介元などあれば記載）'
@@ -4490,7 +4589,7 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                         ? '例: 東京海上日動 ○○支社'
                         : '代理店名'}
                       value={formData.entryDetail}
-                      onChange={(e) => setFormData({ ...formData, entryDetail: e.target.value })}
+                      onChange={(v) => setFormData({ ...formData, entryDetail: v })}
                     />
                     {(formData.entryPrimary === '業者' || formData.entryPrimary === '保険') && (
                       <div className="flex flex-wrap gap-1 pt-1">
@@ -4636,12 +4735,12 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
               <div className="flex gap-4 items-start mt-4">
                 <label className="w-32 text-right text-sm font-medium text-gray-700 mt-1">説明</label>
                 <div className="flex-1">
-                  <textarea
+                  <IMETextarea
                     className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[100px] resize-y"
                     placeholder="カードの説明や特記事項を入力してください..."
                     value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  ></textarea>
+                    onChange={(v) => setFormData({...formData, description: v})}
+                  />
                 </div>
               </div>
 
@@ -4721,6 +4820,7 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   if (!task) return null;
   const effectiveOnUpdate = viewOnly ? () => {} : onUpdate;
   const issueKey = `#${task.id.replace(/\D/g, '') || Math.floor(Math.random()*1000) + 2000}`;
@@ -4844,19 +4944,19 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
             )}
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">車種:</span>
-               <input type="text" value={task.car || ''} onChange={(e) => effectiveOnUpdate({ ...task, car: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <IMEInput value={task.car || ''} onChange={(v) => effectiveOnUpdate({ ...task, car: v })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">カラーナンバー:</span>
-               <input type="text" value={task.colorNo || ''} onChange={(e) => effectiveOnUpdate({ ...task, colorNo: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" placeholder="例: 3R2" />
+               <IMEInput value={task.colorNo || ''} onChange={(v) => effectiveOnUpdate({ ...task, colorNo: v })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" placeholder="例: 3R2" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">車番:</span>
-               <input type="text" value={task.number || ''} onChange={(e) => effectiveOnUpdate({ ...task, number: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <IMEInput value={task.number || ''} onChange={(v) => effectiveOnUpdate({ ...task, number: v })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">顧客:</span>
-               <input type="text" value={task.assignee || ''} onChange={(e) => effectiveOnUpdate({ ...task, assignee: e.target.value })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
+               <IMEInput value={task.assignee || ''} onChange={(v) => effectiveOnUpdate({ ...task, assignee: v })} className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]" />
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">入庫先ジャンル:</span>
@@ -4871,10 +4971,9 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                    ))}
                  </select>
                  <div className="flex flex-col gap-1">
-                   <input
-                     type="text"
+                   <IMEInput
                      value={task.entryDetail || ''}
-                     onChange={(e) => effectiveOnUpdate({ ...task, entryDetail: e.target.value })}
+                     onChange={(v) => effectiveOnUpdate({ ...task, entryDetail: v })}
                      className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[250px]"
                      placeholder="詳細（例: ヤナセ、東京海上日動 など）"
                    />
@@ -4945,6 +5044,17 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                  <FileText className="w-4 h-4" />
                  見積もりチェッカーで開く
                </a>
+            </div>
+            <div className="grid grid-cols-[120px_1fr] gap-2 items-start">
+               <span className="text-gray-500 pt-1.5">請求書発行:</span>
+               <button
+                 type="button"
+                 onClick={() => setIsInvoiceModalOpen(true)}
+                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-sm font-medium transition-colors border border-emerald-200"
+               >
+                 <FileText className="w-4 h-4" />
+                 請求書を作成・印刷
+               </button>
             </div>
             <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                <span className="text-gray-500">鈑金担当者:</span>
@@ -5052,10 +5162,10 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
           </Accordion>
 
           <Accordion title="説明" defaultOpen={true}>
-            <textarea
+            <IMETextarea
               className="w-full text-sm text-gray-700 p-2 border border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none rounded resize-y min-h-[80px]"
               value={task.description !== undefined ? task.description : ''}
-              onChange={(e) => effectiveOnUpdate({ ...task, description: e.target.value })}
+              onChange={(v) => effectiveOnUpdate({ ...task, description: v })}
               placeholder="カードの説明や特記事項を入力してください..."
             />
           </Accordion>
@@ -5222,6 +5332,12 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
           </Accordion>
         </div>
       </div>
+      {isInvoiceModalOpen && task && (
+        <InvoiceModal
+          task={task}
+          onClose={() => setIsInvoiceModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
