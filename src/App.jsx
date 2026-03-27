@@ -475,43 +475,40 @@ const TASKS_CACHE_KEY = 'brightboard_tasks';
 const RESERVATIONS_CACHE_KEY = 'brightboard_reservations';
 const FLEET_CARS_KEY = 'brightboard_fleet_cars';
 
+// --- スプレッドシート連携（1つのGAS URLで入庫記録・サイクルタイム両方を処理） ---
 const SHEET_SYNC_URL = import.meta.env.VITE_SHEET_SYNC_URL;
+const CYCLETIME_SHEET_URL = import.meta.env.VITE_CYCLETIME_SHEET_URL;
 
-async function syncCardToSheet(task) {
-  if (!SHEET_SYNC_URL) return;
+async function postToSheet(url, task, action) {
+  if (!url) return;
   try {
-    await fetch(SHEET_SYNC_URL, {
+    await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(task)
+      body: JSON.stringify({ ...task, _action: action })
     });
   } catch (_) {
     // シート連携は補助的なため、失敗してもアプリ全体には影響させない
   }
 }
 
+// 入庫記録: カードが「入庫済み」に到達した時にPOST
+async function syncCardToSheet(task) {
+  postToSheet(SHEET_SYNC_URL, task, 'checkin');
+}
+
 const shouldSyncToSheetOnStatusChange = (prevStatus, nextStatus) => {
   if (!SHEET_SYNC_URL) return false;
   if (!nextStatus) return false;
-  // 「入庫済み」にステータスが変わったタイミングでのみ同期（重複防止のため、前が received だった場合は除外）
   return prevStatus !== 'received' && nextStatus === 'received';
 };
 
-// --- サイクルタイム記録（納車到達時にスプレッドシートへ工程別滞在日数を出力） ---
-const CYCLETIME_SHEET_URL = import.meta.env.VITE_CYCLETIME_SHEET_URL;
+// サイクルタイム記録: カードが「納車済み」に到達した時にPOST
 const CYCLETIME_TRIGGER_STATUSES = new Set(['delivered_unpaid', 'delivered_paid']);
 
 async function syncCycleTimeToSheet(task) {
-  if (!CYCLETIME_SHEET_URL) return;
-  try {
-    await fetch(CYCLETIME_SHEET_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(task)
-    });
-  } catch (_) {
-    // サイクルタイム連携は補助的なため、失敗してもアプリ全体には影響させない
-  }
+  const url = CYCLETIME_SHEET_URL || SHEET_SYNC_URL;
+  postToSheet(url, task, 'cycletime');
 }
 
 const shouldSyncCycleTime = (prevStatus, nextStatus) => {
