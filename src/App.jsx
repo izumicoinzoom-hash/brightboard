@@ -497,6 +497,30 @@ const shouldSyncToSheetOnStatusChange = (prevStatus, nextStatus) => {
   return prevStatus !== 'received' && nextStatus === 'received';
 };
 
+// --- サイクルタイム記録（納車到達時にスプレッドシートへ工程別滞在日数を出力） ---
+const CYCLETIME_SHEET_URL = import.meta.env.VITE_CYCLETIME_SHEET_URL;
+const CYCLETIME_TRIGGER_STATUSES = new Set(['delivered_unpaid', 'delivered_paid']);
+
+async function syncCycleTimeToSheet(task) {
+  if (!CYCLETIME_SHEET_URL) return;
+  try {
+    await fetch(CYCLETIME_SHEET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task)
+    });
+  } catch (_) {
+    // サイクルタイム連携は補助的なため、失敗してもアプリ全体には影響させない
+  }
+}
+
+const shouldSyncCycleTime = (prevStatus, nextStatus) => {
+  if (!CYCLETIME_SHEET_URL) return false;
+  if (!nextStatus) return false;
+  // 「納車済み-支払い待ち」または「納車済-支払い済み」に到達したタイミングで出力
+  return !CYCLETIME_TRIGGER_STATUSES.has(prevStatus) && CYCLETIME_TRIGGER_STATUSES.has(nextStatus);
+};
+
 // ステータス変更時の共通ロガー
 // prevStatus → newStatus への移動と、そのときの操作ユーザー（表示名）を履歴に残す
 function transitionTaskStatusWithOperator(task, newStatus, extra = {}, operatorName = null) {
@@ -3249,6 +3273,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       if (shouldSyncToSheetOnStatusChange(currentTask.status, updatedTask.status)) {
         syncCardToSheet(updatedTask);
       }
+      if (shouldSyncCycleTime(currentTask.status, updatedTask.status)) {
+        syncCycleTimeToSheet(updatedTask);
+      }
     }
     setDraggedTaskId(null);
   };
@@ -3395,6 +3422,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       upsertDocument('boards/main/tasks', taskToSave.id, taskToSave);
       if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, taskToSave.status)) {
         syncCardToSheet(taskToSave);
+      }
+      if (prevTask && shouldSyncCycleTime(prevTask.status, taskToSave.status)) {
+        syncCycleTimeToSheet(taskToSave);
       }
     }
   };
