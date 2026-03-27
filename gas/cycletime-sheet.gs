@@ -177,25 +177,46 @@ function jstNow() {
 
 // ===== シート初期化 =====
 
+// 月キーを取得（例: "2026-03"）
+function getCurrentMonthKey() {
+  return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
+}
+
+// 月別シートを取得または作成する汎用関数
+function getOrCreateMonthlySheet(prefix, headers, monthKey) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = prefix + '_' + (monthKey || getCurrentMonthKey());
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+var CHECKIN_HEADERS = [
+  '記録日時', 'カードID', '顧客名', '車種', 'ナンバー', 'メーカー', '色番号',
+  '入庫区分', '入庫詳細', '入庫日', '入庫時間', '出庫予定日',
+  '受付担当', '鈑金担当', '塗装担当',
+  '代車タイプ', '代車ID',
+  'ステータス'
+];
+
+var DELIVERY_HEADERS = [
+  '納車日時', 'カードID', '顧客名', '車種', 'ナンバー', 'メーカー', '色番号',
+  '入庫区分', '入庫詳細', '入庫日', '出庫日',
+  '受付担当', '鈑金担当', '塗装担当',
+  '代車タイプ', '代車ID',
+  '総サイクルタイム(暦日)', '総サイクルタイム(営業日)',
+  '備考'
+];
+
 function ensureSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // 入庫記録シート
-  var checkinSheet = ss.getSheetByName('入庫記録');
-  if (!checkinSheet) {
-    checkinSheet = ss.insertSheet('入庫記録');
-    checkinSheet.appendRow([
-      '記録日時', 'カードID', '顧客名', '車種', 'ナンバー', 'メーカー', '色番号',
-      '入庫区分', '入庫詳細', '入庫日', '入庫時間', '出庫予定日',
-      '受付担当', '鈑金担当', '塗装担当',
-      '代車タイプ', '代車ID',
-      'ステータス'
-    ]);
-    checkinSheet.getRange(1, 1, 1, 18).setFontWeight('bold');
-    checkinSheet.setFrozenRows(1);
-  }
-
-  // サイクルタイムシート
+  // サイクルタイムシート（月分割しない。全期間を1シートで分析するため）
   var cycleSheet = ss.getSheetByName('サイクルタイム');
   if (!cycleSheet) {
     cycleSheet = ss.insertSheet('サイクルタイム');
@@ -230,30 +251,30 @@ function ensureSheets() {
     holidaySheet.setFrozenRows(1);
   }
 
-  // 納車記録シート
-  var deliverySheet = ss.getSheetByName('納車記録');
-  if (!deliverySheet) {
-    deliverySheet = ss.insertSheet('納車記録');
-    deliverySheet.appendRow([
-      '納車日時', 'カードID', '顧客名', '車種', 'ナンバー', 'メーカー', '色番号',
-      '入庫区分', '入庫詳細', '入庫日', '出庫日',
-      '受付担当', '鈑金担当', '塗装担当',
-      '代車タイプ', '代車ID',
-      '総サイクルタイム(暦日)', '総サイクルタイム(営業日)',
-      '備考'
-    ]);
-    deliverySheet.getRange(1, 1, 1, 19).setFontWeight('bold');
-    deliverySheet.setFrozenRows(1);
-  }
-
-  return { checkin: checkinSheet, cycle: cycleSheet, delivery: deliverySheet, holiday: holidaySheet };
+  return { cycle: cycleSheet, holiday: holidaySheet };
 }
 
-// ===== 入庫記録の書き込み =====
+// 月別シート内での重複チェック＆書き込み汎用関数
+function upsertRow(sheet, row, cardIdColIndex) {
+  var data = sheet.getDataRange().getValues();
+  var existingRow = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][cardIdColIndex] === row[cardIdColIndex]) { existingRow = i + 1; break; }
+  }
+  if (existingRow > 0) {
+    sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
+  } else {
+    sheet.appendRow(row);
+  }
+}
+
+// ===== 入庫記録の書き込み（月別シート） =====
 
 function writeCheckinRecord(task) {
-  var sheets = ensureSheets();
-  var sheet = sheets.checkin;
+  ensureSheets(); // サイクルタイム・会社休日を初期化
+  // 入庫日の月、なければ現在月でシートを分ける
+  var monthKey = task.inDate ? task.inDate.substring(0, 7) : getCurrentMonthKey();
+  var sheet = getOrCreateMonthlySheet('入庫記録', CHECKIN_HEADERS, monthKey);
 
   var row = [
     jstNow(),
@@ -276,20 +297,10 @@ function writeCheckinRecord(task) {
     task.status || '',
   ];
 
-  // 重複チェック（同じカードIDがあれば更新）
-  var data = sheet.getDataRange().getValues();
-  var existingRow = -1;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][1] === task.id) { existingRow = i + 1; break; }
-  }
-  if (existingRow > 0) {
-    sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
-  } else {
-    sheet.appendRow(row);
-  }
+  upsertRow(sheet, row, 1); // カードID = index 1
 }
 
-// ===== サイクルタイムの書き込み =====
+// ===== サイクルタイムの書き込み（全期間1シート） =====
 
 function writeCycleTimeRecord(task) {
   var sheets = ensureSheets();
@@ -320,26 +331,17 @@ function writeCycleTimeRecord(task) {
   row.push(fmt(totalCal));
   row.push(fmt(totalBiz));
 
-  // 重複チェック
-  var data = sheet.getDataRange().getValues();
-  var existingRow = -1;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][1] === task.id) { existingRow = i + 1; break; }
-  }
-  if (existingRow > 0) {
-    sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
-  } else {
-    sheet.appendRow(row);
-  }
+  upsertRow(sheet, row, 1);
 }
 
-// ===== 納車記録の書き込み =====
+// ===== 納車記録の書き込み（月別シート） =====
 
 function writeDeliveryRecord(task) {
-  var sheets = ensureSheets();
-  var sheet = sheets.delivery;
+  ensureSheets();
+  // 現在月でシートを分ける（納車した月）
+  var monthKey = getCurrentMonthKey();
+  var sheet = getOrCreateMonthlySheet('納車記録', DELIVERY_HEADERS, monthKey);
 
-  // 総サイクルタイムの簡易計算（入庫日→現在）
   var totalCal = '';
   var totalBiz = '';
   if (task.inDate) {
@@ -370,17 +372,7 @@ function writeDeliveryRecord(task) {
     task.description || '',
   ];
 
-  // 重複チェック（同じカードIDがあれば更新）
-  var data = sheet.getDataRange().getValues();
-  var existingRow = -1;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][1] === task.id) { existingRow = i + 1; break; }
-  }
-  if (existingRow > 0) {
-    sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
-  } else {
-    sheet.appendRow(row);
-  }
+  upsertRow(sheet, row, 1);
 }
 
 // ===== POST ハンドラ（メインエントリポイント） =====
