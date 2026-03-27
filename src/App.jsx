@@ -504,12 +504,14 @@ const shouldSyncToSheetOnStatusChange = (prevStatus, nextStatus) => {
   return prevStatus !== 'received' && nextStatus === 'received';
 };
 
-// サイクルタイム記録: カードが「納車済み」に到達した時にPOST
+// サイクルタイム記録 + 納車記録: カードが「納車済み」に到達した時にPOST
 const CYCLETIME_TRIGGER_STATUSES = new Set(['delivered_unpaid', 'delivered_paid']);
 
 async function syncCycleTimeToSheet(task) {
   const url = CYCLETIME_SHEET_URL || SHEET_SYNC_URL;
   postToSheet(url, task, 'cycletime');
+  // 納車記録も同時にPOST
+  postToSheet(SHEET_SYNC_URL, task, 'delivery');
 }
 
 const shouldSyncCycleTime = (prevStatus, nextStatus) => {

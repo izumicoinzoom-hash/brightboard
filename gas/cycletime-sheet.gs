@@ -230,7 +230,23 @@ function ensureSheets() {
     holidaySheet.setFrozenRows(1);
   }
 
-  return { checkin: checkinSheet, cycle: cycleSheet, holiday: holidaySheet };
+  // 納車記録シート
+  var deliverySheet = ss.getSheetByName('納車記録');
+  if (!deliverySheet) {
+    deliverySheet = ss.insertSheet('納車記録');
+    deliverySheet.appendRow([
+      '納車日時', 'カードID', '顧客名', '車種', 'ナンバー', 'メーカー', '色番号',
+      '入庫区分', '入庫詳細', '入庫日', '出庫日',
+      '受付担当', '鈑金担当', '塗装担当',
+      '代車タイプ', '代車ID',
+      '総サイクルタイム(暦日)', '総サイクルタイム(営業日)',
+      '備考'
+    ]);
+    deliverySheet.getRange(1, 1, 1, 19).setFontWeight('bold');
+    deliverySheet.setFrozenRows(1);
+  }
+
+  return { checkin: checkinSheet, cycle: cycleSheet, delivery: deliverySheet, holiday: holidaySheet };
 }
 
 // ===== 入庫記録の書き込み =====
@@ -317,6 +333,56 @@ function writeCycleTimeRecord(task) {
   }
 }
 
+// ===== 納車記録の書き込み =====
+
+function writeDeliveryRecord(task) {
+  var sheets = ensureSheets();
+  var sheet = sheets.delivery;
+
+  // 総サイクルタイムの簡易計算（入庫日→現在）
+  var totalCal = '';
+  var totalBiz = '';
+  if (task.inDate) {
+    var nowIso = new Date().toISOString();
+    totalCal = fmt(countCalendarDays(task.inDate + 'T00:00:00+09:00', nowIso));
+    totalBiz = fmt(countBusinessDays(task.inDate + 'T00:00:00+09:00', nowIso));
+  }
+
+  var row = [
+    jstNow(),
+    task.id || '',
+    task.assignee || '',
+    task.car || '',
+    task.number || '',
+    task.maker || '',
+    task.colorNo || '',
+    task.entryPrimary || '',
+    task.entryDetail || '',
+    task.inDate || '',
+    task.outDate || '',
+    task.receptionStaff || '',
+    task.bodyStaff || '',
+    task.paintStaff || '',
+    task.loanerType || '',
+    task.loanerCarId || '',
+    totalCal,
+    totalBiz,
+    task.description || '',
+  ];
+
+  // 重複チェック（同じカードIDがあれば更新）
+  var data = sheet.getDataRange().getValues();
+  var existingRow = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][1] === task.id) { existingRow = i + 1; break; }
+  }
+  if (existingRow > 0) {
+    sheet.getRange(existingRow, 1, 1, row.length).setValues([row]);
+  } else {
+    sheet.appendRow(row);
+  }
+}
+
 // ===== POST ハンドラ（メインエントリポイント） =====
 
 function doPost(e) {
@@ -331,11 +397,14 @@ function doPost(e) {
       writeCheckinRecord(data);
     } else if (action === 'cycletime') {
       writeCycleTimeRecord(data);
+    } else if (action === 'delivery') {
+      writeDeliveryRecord(data);
     } else {
-      // 自動判定: delivered_unpaid/delivered_paid ならサイクルタイム、それ以外は入庫
+      // 自動判定: delivered_unpaid/delivered_paid ならサイクルタイム+納車記録、それ以外は入庫
       var deliveryStatuses = ['delivered_unpaid', 'delivered_paid'];
       if (deliveryStatuses.indexOf(data.status) >= 0) {
         writeCycleTimeRecord(data);
+        writeDeliveryRecord(data);
       } else {
         writeCheckinRecord(data);
       }
