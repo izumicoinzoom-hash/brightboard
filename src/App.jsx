@@ -31,6 +31,19 @@ const getTodayString = () => {
   return `${year}-${month}-${day}`;
 };
 
+// 滞在時間フォーマット: ISO日時文字列から経過時間を短縮表示
+const formatElapsedTime = (isoString) => {
+  if (!isoString) return '';
+  try {
+    const ms = Date.now() - new Date(isoString).getTime();
+    if (ms < 0 || Number.isNaN(ms)) return '';
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (days >= 1) return `${days}日`;
+    return `${hours}h`;
+  } catch { return ''; }
+};
+
 const formatInOutDate = (inD, outD) => {
   const f = (d) => {
     if (!d) return '';
@@ -2211,6 +2224,37 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       });
   }, [currentBoardId, tasks]);
 
+  // 納車完了履歴: 月別グループ化・検索・折りたたみ
+  const [deliveryHistorySearch, setDeliveryHistorySearch] = useState('');
+  const [collapsedMonths, setCollapsedMonths] = useState({});
+  const deliveryHistoryFiltered = useMemo(() => {
+    if (!deliveryHistorySearch.trim()) return deliveryCompletedTasks;
+    const q = deliveryHistorySearch.trim().toLowerCase();
+    return deliveryCompletedTasks.filter(t => {
+      const text = `${t.assignee || ''} ${t.car || ''} ${t.number || ''}`.toLowerCase();
+      return text.includes(q);
+    });
+  }, [deliveryCompletedTasks, deliveryHistorySearch]);
+  const deliveryHistoryByMonth = useMemo(() => {
+    const groups = [];
+    let currentKey = '';
+    let currentGroup = null;
+    deliveryHistoryFiltered.forEach(task => {
+      const d = task.outDate || task.statusEnteredAt || '';
+      const dt = d ? new Date(d) : null;
+      const key = dt && !Number.isNaN(dt.getTime())
+        ? `${dt.getFullYear()}年${dt.getMonth() + 1}月`
+        : '日付不明';
+      if (key !== currentKey) {
+        currentKey = key;
+        currentGroup = { key, tasks: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.tasks.push(task);
+    });
+    return groups;
+  }, [deliveryHistoryFiltered]);
+
   // --- 異常検知: 後工程にいたカードが入庫済みに戻っている場合を検出 ---
   const LATER_STAGE_STATUSES = new Set([
     'b_wait', 'b_doing', 'b_done_p_wait', 'p_only', 'prep', 'prep_done', 'prep_p',
@@ -2313,6 +2357,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [calendarToast, setCalendarToast] = useState('');
   const [settingsSaveToast, setSettingsSaveToast] = useState('');
   const [draggedTaskId, setDraggedTaskId] = useState(null);
+  // 1分ごとに再レンダリングして滞在時間表示を更新
+  const [, setElapsedTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setElapsedTick(t => t + 1), 60000); return () => clearInterval(id); }, []);
   const [selectedTaskId, setSelectedTaskId] = useState(nfcTaskId || null);
 
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
@@ -2742,6 +2789,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         </div>
         {task.assignee}<br/>{task.car} {task.number}<br/>
         <span className="text-gray-500 font-normal inline-block mt-0.5">{formatInOutDate(task.inDate, task.outDate)}</span>
+        {task.statusEnteredAt && (() => {
+          const elapsed = formatElapsedTime(task.statusEnteredAt);
+          if (!elapsed) return null;
+          const ms = Date.now() - new Date(task.statusEnteredAt).getTime();
+          const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+          const cls = days >= 5 ? 'text-red-700 bg-red-50' : days >= 3 ? 'text-amber-700 bg-amber-50' : 'text-gray-500 bg-gray-100';
+          return <span className={`text-[9px] px-1 rounded ml-1 ${cls}`} title="この列での滞在時間">{elapsed}</span>;
+        })()}
       </div>
       <div className="flex gap-1 mb-1 text-gray-500">
         {task.characters?.map(cId => { const Icon = AVAILABLE_CHARACTERS.find(c => c.id === cId)?.icon; return Icon ? <Icon key={cId} className="w-3.5 h-3.5" /> : null; })}
@@ -3891,43 +3946,73 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
               </div>
 
               {currentBoardId === 'delivery' && deliveryCompletedTasks.length > 0 && (
-                <div className="mt-4 bg-white rounded-md border border-gray-200 p-3">
-                  <div className="flex items-center justify-between mb-2">
+                <div className="mt-4 bg-white rounded-md border border-gray-200 p-3 flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+                  <div className="flex items-center justify-between mb-2 flex-shrink-0">
                     <div className="text-sm font-semibold text-gray-800">納車完了履歴</div>
-                    <div className="text-xs text-gray-500">{deliveryCompletedTasks.length}件</div>
+                    <div className="text-xs text-gray-500">{deliveryCompletedTasks.length}件{deliveryHistorySearch.trim() && ` → ${deliveryHistoryFiltered.length}件`}</div>
                   </div>
-                  <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 text-xs">
-                    {deliveryCompletedTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className="w-full px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTaskId(task.id)}
-                          className="flex-1 min-w-0 text-left flex items-center gap-2"
-                        >
-                          <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                          <span className="flex-1 min-w-0 truncate" title={`${task.assignee || ''} ${task.car || ''} ${task.number || ''}`.trim()}>
-                            {(task.assignee || '').trim() || '担当未設定'} / {(task.car || '').trim() || '車種未設定'} {task.number || ''}
-                          </span>
-                          <span className="text-[11px] text-gray-500 flex-shrink-0">
-                            {task.outDate || task.inDate || ''}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm('このカードを完了にする前にいた列へ戻します。よろしいですか？')) {
-                              restoreFromDeliveryHistory(task.id);
-                            }
-                          }}
-                          className="ml-2 px-2 py-0.5 text-[11px] rounded border border-gray-300 text-gray-600 hover:bg-gray-100 flex-shrink-0"
-                        >
-                          元に戻す
-                        </button>
-                      </div>
-                    ))}
+                  <div className="mb-2 flex-shrink-0">
+                    <IMEInput
+                      className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs bg-gray-50 focus:bg-white focus:border-blue-400 focus:outline-none"
+                      placeholder="ナンバー・車種・お客様名で検索"
+                      value={deliveryHistorySearch}
+                      onChange={(v) => setDeliveryHistorySearch(v)}
+                    />
+                  </div>
+                  <div className="flex-1 overflow-y-auto min-h-0">
+                    {deliveryHistoryByMonth.map((group) => {
+                      const isCollapsed = !!collapsedMonths[group.key];
+                      return (
+                        <div key={group.key} className="mb-1">
+                          <button
+                            type="button"
+                            onClick={() => setCollapsedMonths(prev => ({ ...prev, [group.key]: !prev[group.key] }))}
+                            className="w-full flex items-center justify-between px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-semibold text-gray-700 sticky top-0 z-[1]"
+                          >
+                            <span>{group.key}（{group.tasks.length}件）</span>
+                            <span className="text-gray-400">{isCollapsed ? '▶' : '▼'}</span>
+                          </button>
+                          {!isCollapsed && (
+                            <div className="divide-y divide-gray-100">
+                              {group.tasks.map((task) => (
+                                <div
+                                  key={task.id}
+                                  className="w-full px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2 text-xs"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTaskId(task.id)}
+                                    className="flex-1 min-w-0 text-left flex items-center gap-2"
+                                  >
+                                    <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                                    <span className="flex-1 min-w-0 truncate" title={`${task.assignee || ''} ${task.car || ''} ${task.number || ''}`.trim()}>
+                                      {(task.assignee || '').trim() || '担当未設定'} / {(task.car || '').trim() || '車種未設定'} {task.number || ''}
+                                    </span>
+                                    <span className="text-[11px] text-gray-500 flex-shrink-0">
+                                      {task.outDate || task.inDate || ''}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm('このカードを完了にする前にいた列へ戻します。よろしいですか？')) {
+                                        restoreFromDeliveryHistory(task.id);
+                                      }
+                                    }}
+                                    className="ml-2 px-2 py-0.5 text-[11px] rounded border border-gray-300 text-gray-600 hover:bg-gray-100 flex-shrink-0"
+                                  >
+                                    元に戻す
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {deliveryHistoryFiltered.length === 0 && deliveryHistorySearch.trim() && (
+                      <p className="text-xs text-gray-500 py-3 text-center">該当する履歴はありません</p>
+                    )}
                   </div>
                 </div>
               )}
