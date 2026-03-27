@@ -482,9 +482,10 @@ const CYCLETIME_SHEET_URL = import.meta.env.VITE_CYCLETIME_SHEET_URL;
 async function postToSheet(url, task, action) {
   if (!url) return;
   try {
+    // GAS Web Appへの POST は Content-Type を text/plain にする
+    // （application/json だと CORS preflight が発生して GAS がブロックする）
     await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...task, _action: action })
     });
   } catch (_) {
