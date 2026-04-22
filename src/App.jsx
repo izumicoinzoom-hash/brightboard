@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox, History
 } from 'lucide-react';
 import {
   getFirebaseAuth,
@@ -79,6 +79,20 @@ const ENTRY_SECONDARY_PRESETS = {
 };
 
 const getTaskDateForGrouping = (task) => task.outDate || task.inDate || '';
+
+// 代車の貸出経過日数・予定日数・超過判定・長期判定を計算する
+// ongoing: 納車日が未設定なら「今日まで」で計算。入庫日もなければ null を返す
+const computeLoanerDayInfo = (task) => {
+  if (!task || !task.loanerType || task.loanerType === 'none') return null;
+  const start = task.inDate;
+  if (!start) return { elapsedDays: null, plannedDays: task.plannedDays ?? null, isOverrun: false, isLongTerm: false };
+  const endStr = task.outDate || new Date().toISOString().slice(0, 10);
+  const elapsed = Math.max(1, Math.ceil((new Date(endStr) - new Date(start)) / 86400000) + 1);
+  const planned = (task.plannedDays === 0 || task.plannedDays) ? Number(task.plannedDays) : null;
+  const isOverrun = planned != null && planned > 0 && elapsed > planned;
+  const isLongTerm = elapsed >= 10;
+  return { elapsedDays: elapsed, plannedDays: planned, isOverrun, isLongTerm };
+};
 
 const getWeekInfo = (dateStr) => {
   if (!dateStr) return null;
@@ -318,6 +332,67 @@ function ensureReceptionStaffBase(list) {
 // --- カードの色オプション（全コンポーネント共通）---
 const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray-100', 'bg-red-100'];
 
+// --- 更新履歴 ---
+const CHANGELOG = [
+  {
+    date: '2026-04-17',
+    version: 'v1.5.0',
+    items: [
+      'レンタル会社マスタを追加（設定→レンタル会社マスタから管理。他社レンタカー会社名をプルダウンから選択可）',
+      '予定貸出日数（plannedDays）をカードに設定可能に。超過時はバッジが赤く表示',
+      'バッジ表示に「n/m日」形式の経過/予定日数を表示（10日以上の長期貸出は 📌 でピン留め）',
+      '代車ガントチャート画面に「代車利用一覧」を追加（代車種別フィルタ・貸出日数降順ソート・レンタル会社グループ化）',
+    ]
+  },
+  {
+    date: '2026-04-01',
+    version: 'v1.4.0',
+    items: [
+      '他社レンタカー選択時にテキスト入力（会社名）に変更',
+      'カードバッジ表記を分類: 代車=「代」、自社レンタカー=「レ」、他社レンタカー=「他」',
+      '他社レンタカーの貸出日数をバッジに自動表示',
+    ]
+  },
+  {
+    date: '2026-03-30',
+    version: 'v1.3.0',
+    items: [
+      'キーボード入力不能障害を修正（IMEInput compositionイベント制御の問題）',
+      '外部スクリプト（GIS）の常駐読み込みを廃止',
+    ]
+  },
+  {
+    date: '2026-03-28',
+    version: 'v1.2.0',
+    items: [
+      '請求書作成機能を追加',
+      'サイクルタイム計測（入庫帳・納車帳・サイクルタイム帳票）を追加',
+      'GAS連携による月別シート自動分割',
+    ]
+  },
+  {
+    date: '2026-03-20',
+    version: 'v1.1.0',
+    items: [
+      '代車ガントチャート（貸出状況の可視化）を追加',
+      '代車マスタ設定パネルを追加',
+      'カードと代車予約の自動連動',
+      '車検期限3日前からの自動除外',
+    ]
+  },
+  {
+    date: '2026-03-01',
+    version: 'v1.0.0',
+    items: [
+      'BrightBoard 初期リリース',
+      'カンバンボード（入庫〜納車の工程管理）',
+      'Firebaseリアルタイム同期',
+      'Googleカレンダー連携',
+      'インドネシア語切り替え',
+    ]
+  },
+];
+
 // --- 代車・レンタカー マスター ---
 const LOANER_OPTIONS = [
   { id: 'none', label: '不要 (なし)' },
@@ -399,9 +474,9 @@ const AVAILABLE_TASKS = [
 // 列の statuses: 省略時は [id] として扱い、複数指定時はそのいずれかの status のタスクを表示。ドロップ時は statuses[0] に更新。
 const BOARD_ORDER = ['planning', 'main', 'body', 'paint', 'delivery', 'orphan'];
 const BOARDS = {
-  planning: { id: 'planning', title: '〈入庫〉予約管理（Planning）', columns: [ { id: 'unscheduled', name: '入庫日未定' }, { id: 'mon', name: '月' }, { id: 'tue', name: '火' }, { id: 'wed', name: '水' }, { id: 'thu', name: '木' }, { id: 'fri', name: '金' }, { id: 'sat', name: '土' }, { id: 'sun', name: '日' }, { id: 'received', name: '入庫済み' }, ] },
+  planning: { id: 'planning', title: '予約管理', columns: [ { id: 'unscheduled', name: '入庫日未定' }, { id: 'mon', name: '月' }, { id: 'tue', name: '火' }, { id: 'wed', name: '水' }, { id: 'thu', name: '木' }, { id: 'fri', name: '金' }, { id: 'sat', name: '土' }, { id: 'sun', name: '日' }, { id: 'received', name: '入庫済み' }, ] },
   // 全作業 ⇔ 塗装: 下処理＆塗装＝塗装の下処理・下処理済P待ち・塗装を統合。Pのみ＝p_only。磨き・作業完了はそのまま。
-  main: { id: 'main', title: '〈全作業〉工程管理（Main）', columns: [
+  main: { id: 'main', title: '全工程', columns: [
     { id: 'received', name: '入庫済み' },
     { id: 'b_wait', name: 'B待ち' },
     { id: 'b_doing', name: 'B中' },
@@ -413,10 +488,10 @@ const BOARDS = {
     { id: 'completed', name: '作業完了', statuses: ['completed', 'assembly_done_both', 'assembly_done_nuri', 'polish_done'] },
     { id: 'delivery_today', name: '本日納車', statuses: ['delivery_wait', 'delivery_today'] },
   ] },
-  body: { id: 'body', title: '〈鈑金〉工程管理（Body）', columns: [ { id: 'b_wait', name: '鈑金 (Waiting)' }, { id: 'b_doing', name: '鈑金中' }, { id: 'b_done_p_wait', name: '鈑金完了 P待ち' }, { id: 'assembly', name: '組付け' }, { id: 'assembly_done_both', name: '組付完了 (磨無 & 磨完了)', statuses: ['completed', 'assembly_done_both'] }, { id: 'assembly_done_nuri', name: '組付完了 (磨無)', statuses: ['completed', 'assembly_done_nuri'] }, ] },
-  paint: { id: 'paint', title: '〈塗装〉工程管理（Paint）', columns: [ { id: 'prep', name: '下処理', statuses: ['prep', 'b_done_p_wait'] }, { id: 'prep_done', name: '下処理済 (P待ち)' }, { id: 'painting', name: '塗装' }, { id: 'assembly_wait', name: '組付け待ち' }, { id: 'polishing', name: '磨き' }, { id: 'polish_done', name: '磨き完了', statuses: ['completed', 'polish_done'] }, ] },
-  delivery: { id: 'delivery', title: '〈納車〉管理（Delivery）', columns: [ { id: 'delivery_wait', name: '納車待ち' }, { id: 'delivery_today', name: '本日納車' }, { id: 'delivered_unpaid', name: '納車済み-支払い待ち' }, { id: 'delivered_paid', name: '納車済-支払い済み' }, { id: 'completed', name: '完了' }, ] },
-  orphan: { id: 'orphan', title: '迷子カード移動ボード', columns: [ { id: 'orphan', name: '迷子列' } ] }
+  body: { id: 'body', title: '鈑金', columns: [ { id: 'b_wait', name: '鈑金 (Waiting)' }, { id: 'b_doing', name: '鈑金中' }, { id: 'b_done_p_wait', name: '鈑金完了 P待ち' }, { id: 'assembly', name: '組付け' }, { id: 'assembly_done_both', name: '組付完了 (磨無 & 磨完了)', statuses: ['completed', 'assembly_done_both'] }, { id: 'assembly_done_nuri', name: '組付完了 (磨無)', statuses: ['completed', 'assembly_done_nuri'] }, ] },
+  paint: { id: 'paint', title: '塗装', columns: [ { id: 'prep', name: '下処理', statuses: ['prep', 'b_done_p_wait'] }, { id: 'prep_done', name: '下処理済 (P待ち)' }, { id: 'painting', name: '塗装' }, { id: 'assembly_wait', name: '組付け待ち' }, { id: 'polishing', name: '磨き' }, { id: 'polish_done', name: '磨き完了', statuses: ['completed', 'polish_done'] }, ] },
+  delivery: { id: 'delivery', title: '納車管理', columns: [ { id: 'delivery_wait', name: '納車待ち' }, { id: 'delivery_today', name: '本日納車' }, { id: 'delivered_unpaid', name: '納車済み-支払い待ち' }, { id: 'delivered_paid', name: '納車済-支払い済み' }, { id: 'completed', name: '完了' }, ] },
+  orphan: { id: 'orphan', title: '迷子', columns: [ { id: 'orphan', name: '迷子列' } ] }
 };
 
 // インドネシア語: ボード名・列名のみ（軽量表示切替用）
@@ -773,12 +848,15 @@ function LoginScreen({ authError, isLoading, onSignIn }) {
 const FLEET_TYPE_OPTIONS = ['軽自動車', '普通車', 'レンタカー'];
 
 // --- 代車ガントチャートコンポーネント ---
-function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservations, onReservationUpdate, setTasks, viewOnly = false }) {
+function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservations, onReservationUpdate, setTasks, tasks = [], rentalCompanies = [], onSelectTask, viewOnly = false }) {
+  const [listFilterType, setListFilterType] = useState('all');
+  const [listGroupBy, setListGroupBy] = useState('none');
   const [draggedRes, setDraggedRes] = useState(null);
   const [resizingResId, setResizingResId] = useState(null);
   const [newCarName, setNewCarName] = useState('');
   const [newCarType, setNewCarType] = useState('軽自動車');
   const [isScheduleExpanded, setIsScheduleExpanded] = useState(true);
+  const [isListExpanded, setIsListExpanded] = useState(false);
   const [viewOffsetDays, setViewOffsetDays] = useState(0); // 0=今日付近、正=先の日付へ
   const resizeDataRef = useRef({ res: null, timelineRect: null });
 
@@ -921,7 +999,7 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
   };
 
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden">
+    <div className="flex flex-col h-full bg-white overflow-y-auto">
       <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 flex-shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -1043,6 +1121,138 @@ function LoanerGanttChart({ fleetCars, setFleetCars, reservations, setReservatio
         </div>
       </div>
       )}
+
+      {/* --- 代車利用一覧（フィルタ・ソート・グループ化） --- */}
+      <div className="border-t border-gray-200 bg-white">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <button type="button" onClick={() => setIsListExpanded(!isListExpanded)} className="flex items-start gap-2 text-left hover:bg-gray-100 transition-colors rounded py-1 px-1 -my-1 -mx-1">
+              <ChevronRight className={`w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5 transition-transform ${isListExpanded ? 'rotate-90' : ''}`} />
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-blue-600" />
+                  代車利用一覧
+                  {!isListExpanded && <span className="text-xs font-normal text-gray-500">（クリックで展開）</span>}
+                </h2>
+                {isListExpanded && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    貸出日数の降順で並びます。超過は赤、10日以上は 📌 でピン留めされます。
+                  </p>
+                )}
+              </div>
+            </button>
+            {isListExpanded && (
+            <div className="flex items-center gap-3 text-xs">
+              <label className="flex items-center gap-1">
+                <span className="text-gray-500">種別</span>
+                <select
+                  className="border border-gray-300 rounded px-2 py-1 bg-white"
+                  value={listFilterType}
+                  onChange={(e) => setListFilterType(e.target.value)}
+                >
+                  <option value="all">すべて</option>
+                  <option value="own">代（自社代車）</option>
+                  <option value="rental">レ（自社レンタカー）</option>
+                  <option value="other_rental">他（他社レンタカー）</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                <span className="text-gray-500">グループ化</span>
+                <select
+                  className="border border-gray-300 rounded px-2 py-1 bg-white"
+                  value={listGroupBy}
+                  onChange={(e) => setListGroupBy(e.target.value)}
+                >
+                  <option value="none">なし</option>
+                  <option value="type">代車種別</option>
+                  <option value="company">レンタル会社</option>
+                </select>
+              </label>
+            </div>
+            )}
+          </div>
+          {isListExpanded && (() => {
+            const typeCategory = (t) => (t.loanerType === 'other_rental' ? 'other_rental' : t.loanerType === 'rental' ? 'rental' : 'own');
+            const typeLabel = { own: '代（自社代車）', rental: 'レ（自社レンタカー）', other_rental: '他（他社レンタカー）' };
+            const carName = (t) => {
+              if (t.loanerType === 'other_rental') return t.otherRentalName || '(会社名未設定)';
+              const fc = fleetCars.find(f => f.id === t.loanerCarId);
+              return fc ? fc.name : '(車両未選択)';
+            };
+            const filtered = (tasks || [])
+              .filter(t => t && t.loanerType && t.loanerType !== 'none')
+              .filter(t => listFilterType === 'all' ? true : typeCategory(t) === listFilterType)
+              .map(t => ({ task: t, info: computeLoanerDayInfo(t) }))
+              .sort((a, b) => {
+                const ad = a.info?.elapsedDays ?? -1;
+                const bd = b.info?.elapsedDays ?? -1;
+                return bd - ad;
+              });
+
+            if (filtered.length === 0) {
+              return <div className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded">該当する貸出はありません。</div>;
+            }
+
+            const groupKey = (row) => {
+              if (listGroupBy === 'type') return typeLabel[typeCategory(row.task)] || 'その他';
+              if (listGroupBy === 'company') {
+                if (row.task.loanerType === 'other_rental') return row.task.otherRentalName || '(会社名未設定)';
+                if (row.task.loanerType === 'rental') return '自社レンタカー';
+                return '自社代車';
+              }
+              return '_all';
+            };
+            const groups = new Map();
+            filtered.forEach(row => {
+              const k = groupKey(row);
+              if (!groups.has(k)) groups.set(k, []);
+              groups.get(k).push(row);
+            });
+
+            const renderRow = ({ task: t, info }) => {
+              const cat = typeCategory(t);
+              const letter = cat === 'other_rental' ? '他' : cat === 'rental' ? 'レ' : '代';
+              const badgeColor = info?.isOverrun ? 'bg-red-100 text-red-800 ring-1 ring-red-400' : cat === 'other_rental' ? 'bg-orange-100 text-orange-800' : cat === 'rental' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+              const dayText = info?.elapsedDays
+                ? (info.plannedDays ? `${info.elapsedDays}/${info.plannedDays}日` : `${info.elapsedDays}日目`)
+                : '—';
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => onSelectTask && onSelectTask(t.id)}
+                  className={`flex items-center gap-3 px-3 py-2 text-sm border border-gray-100 rounded hover:bg-gray-50 cursor-pointer ${info?.isLongTerm ? 'bg-amber-50/40' : ''}`}
+                >
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-semibold ${badgeColor}`}>
+                    <Truck className="w-3 h-3" /> {letter}
+                  </span>
+                  <span className={`text-xs font-medium min-w-[70px] ${info?.isOverrun ? 'text-red-700' : 'text-gray-700'}`}>
+                    {dayText}{info?.isLongTerm ? ' 📌' : ''}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-gray-800">
+                    {(t.assignee || '').trim()} <span className="text-gray-500">{t.car} {t.number}</span>
+                  </span>
+                  <span className="text-xs text-gray-500 truncate max-w-[180px]">{carName(t)}</span>
+                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{formatInOutDate(t.inDate, t.outDate)}</span>
+                </div>
+              );
+            };
+
+            if (listGroupBy === 'none') {
+              return <div className="space-y-1">{filtered.map(renderRow)}</div>;
+            }
+            return (
+              <div className="space-y-4">
+                {[...groups.entries()].map(([k, rows]) => (
+                  <div key={k}>
+                    <div className="text-xs font-semibold text-gray-600 mb-1 pl-1">{k} <span className="text-gray-400">（{rows.length}件）</span></div>
+                    <div className="space-y-1">{rows.map(renderRow)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1401,6 +1611,120 @@ function FleetMasterPanel({ fleetCars, setFleetCars, reservations, setReservatio
   );
 }
 
+// --- レンタル会社マスタ設定パネル ---
+function RentalCompaniesMasterPanel({ rentalCompanies, onBack, onSave }) {
+  const [companiesLocal, setCompaniesLocal] = useState(() => Array.isArray(rentalCompanies) ? rentalCompanies.map(c => ({ ...c })) : []);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+
+  useEffect(() => {
+    setCompaniesLocal(Array.isArray(rentalCompanies) ? rentalCompanies.map(c => ({ ...c })) : []);
+  }, [rentalCompanies]);
+
+  const handleAdd = () => {
+    const name = (newName || '').trim();
+    if (!name) return;
+    const id = `rc_${Date.now()}`;
+    setCompaniesLocal(prev => [...prev, { id, name, phone: (newPhone || '').trim() || null, isActive: true }]);
+    setNewName('');
+    setNewPhone('');
+  };
+
+  const handleRemove = (id) => {
+    setCompaniesLocal(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleToggleActive = (id) => {
+    setCompaniesLocal(prev => prev.map(c => c.id === id ? { ...c, isActive: !c.isActive } : c));
+  };
+
+  const handleRename = (id, name) => {
+    setCompaniesLocal(prev => prev.map(c => c.id === id ? { ...c, name } : c));
+  };
+
+  const handlePhoneChange = (id, phone) => {
+    setCompaniesLocal(prev => prev.map(c => c.id === id ? { ...c, phone: phone || null } : c));
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <button type="button" onClick={onBack} className="text-sm text-blue-600 hover:underline">← 設定に戻る</button>
+        {onSave && (
+          <button type="button" onClick={() => onSave(companiesLocal)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 font-medium">
+            保存
+          </button>
+        )}
+      </div>
+      <p className="text-sm text-gray-600 mb-4">
+        他社レンタカーの会社名マスタを管理します。ここで登録した会社はカード作成時のプルダウンに表示されます。
+      </p>
+
+      <div className="mb-6 space-y-2">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">会社の追加</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <IMEInput
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm w-56"
+            placeholder="会社名（例: オリックスレンタカー）"
+            value={newName}
+            onChange={(v) => setNewName(v)}
+          />
+          <IMEInput
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm w-40"
+            placeholder="電話番号（任意）"
+            value={newPhone}
+            onChange={(v) => setNewPhone(v)}
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700"
+          >
+            会社を追加
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">登録済み会社</div>
+        <div className="border border-gray-200 rounded-lg max-h-[340px] overflow-y-auto divide-y divide-gray-100">
+          {companiesLocal.map(co => (
+            <div key={co.id} className="px-4 py-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0 space-y-1">
+                <IMEInput
+                  className="border border-gray-200 rounded px-2 py-1 text-sm w-full max-w-[260px]"
+                  value={co.name}
+                  onChange={(v) => handleRename(co.id, v)}
+                />
+                <IMEInput
+                  className="border border-gray-200 rounded px-2 py-1 text-xs w-full max-w-[180px]"
+                  placeholder="電話番号（任意）"
+                  value={co.phone || ''}
+                  onChange={(v) => handlePhoneChange(co.id, v)}
+                />
+              </div>
+              <label className="flex items-center gap-1 text-xs text-gray-600">
+                <input type="checkbox" checked={co.isActive !== false} onChange={() => handleToggleActive(co.id)} />
+                稼働中
+              </label>
+              <button
+                type="button"
+                onClick={() => handleRemove(co.id)}
+                className="text-xs text-red-600 hover:underline"
+              >
+                削除
+              </button>
+            </div>
+          ))}
+          {companiesLocal.length === 0 && (
+            <div className="px-4 py-6 text-sm text-gray-400 text-center">登録されている会社はありません。</div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // --- ボード別・列の増減設定パネル ---
 function ColumnEditPanel({ boardColumnsConfig, setBoardColumnsConfig, columnStatuses, setTasks, onBack }) {
   const [selectedBoardId, setSelectedBoardId] = useState(BOARD_ORDER[0]);
@@ -1664,9 +1988,33 @@ function CalendarLinkModal({ onClose }) {
       setErrorMessage('Googleカレンダー連携の設定が必要です。.env に VITE_GOOGLE_CLIENT_ID を設定してください。');
       return;
     }
-    if (typeof window === 'undefined' || !window.google || !window.google.accounts || !window.google.accounts.oauth2) {
-      setErrorMessage('Googleサインインの読み込み中です。しばらく待ってから再度お試しください。');
-      return;
+    // GISスクリプトが未ロードなら動的に読み込む（index.htmlから削除済み：ページ読み込み時のキーボード入力ブロック防止）
+    if (typeof window !== 'undefined' && (!window.google || !window.google.accounts || !window.google.accounts.oauth2)) {
+      try {
+        await new Promise((resolve, reject) => {
+          if (document.querySelector('script[src*="accounts.google.com/gsi/client"]')) {
+            // スクリプトタグは存在するがまだロード完了していない場合
+            const check = setInterval(() => {
+              if (window.google && window.google.accounts && window.google.accounts.oauth2) { clearInterval(check); resolve(); }
+            }, 200);
+            setTimeout(() => { clearInterval(check); reject(new Error('timeout')); }, 10000);
+          } else {
+            const s = document.createElement('script');
+            s.src = 'https://accounts.google.com/gsi/client';
+            s.onload = () => {
+              const check = setInterval(() => {
+                if (window.google && window.google.accounts && window.google.accounts.oauth2) { clearInterval(check); resolve(); }
+              }, 200);
+              setTimeout(() => { clearInterval(check); reject(new Error('timeout')); }, 10000);
+            };
+            s.onerror = () => reject(new Error('スクリプトの読み込みに失敗しました'));
+            document.head.appendChild(s);
+          }
+        });
+      } catch {
+        setErrorMessage('Googleサインインの読み込みに失敗しました。ページを再読み込みしてください。');
+        return;
+      }
     }
     setIsCreating(true);
     try {
@@ -1923,7 +2271,7 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
 }
 
 // --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
-function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null }) {
+function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null, nfcBinderNumber = null }) {
   const useIndonesian = (() => {
     try {
       if (typeof window === 'undefined') return false;
@@ -1942,7 +2290,13 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
   const [nfcBoardId, setNfcBoardId] = useState('body'); // 鈑金 or 塗装
 
   const nfcTaskIdFromUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('nfcTaskId') : null;
-  const nfcTaskId = nfcTaskIdProp || nfcTaskIdFromUrl || null;
+  // バインダー番号 → タスクID解決
+  const binderResolvedId = useMemo(() => {
+    if (!nfcBinderNumber || tasks.length === 0) return null;
+    const found = tasks.find(t => t.binderNumber === nfcBinderNumber);
+    return found ? found.id : null;
+  }, [nfcBinderNumber, tasks]);
+  const nfcTaskId = nfcTaskIdProp || nfcTaskIdFromUrl || binderResolvedId || null;
 
   useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -2050,14 +2404,18 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
       <main className="flex-1 flex items-center justify-center px-4 py-5">
         <div className="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-5 space-y-4">
           {isLoading && <div className="text-xl text-gray-700">読み込み中です...</div>}
-          {!isLoading && !nfcTaskId && (
+          {!isLoading && !nfcTaskId && nfcBinderNumber && (
+            <div className="space-y-4 text-center">
+              <div className="text-6xl font-black text-gray-300">{nfcBinderNumber}</div>
+              <p className="font-semibold text-amber-700 text-xl">このバインダーは現在未割当です</p>
+              <p className="text-gray-500 text-base">フロントでカードを作成し、バインダー No.{nfcBinderNumber} を選択してください。</p>
+            </div>
+          )}
+          {!isLoading && !nfcTaskId && !nfcBinderNumber && (
             <div className="space-y-4 text-xl">
               <p className="font-semibold text-amber-700 text-xl">NFCタグのURLが正しくありません。</p>
-              <p className="text-gray-700 leading-relaxed text-xl">
-                正しいURLには <code className="bg-gray-100 px-1.5 rounded">nfcStandalone=1</code> と <code className="bg-gray-100 px-1.5 rounded">nfcTaskId=カードID</code> の両方が含まれている必要があります。
-              </p>
-              <p className="text-gray-700 text-lg">
-                カード詳細パネルの「NFCタグ用URLを発行」で表示されるURLをそのままNFCタグに書き込んでください。（例: https://withbt.com/kiyota/?nfcStandalone=1&nfcTaskId=t123...）
+              <p className="text-gray-700 text-base">
+                バインダーのNFCタグまたはカード詳細のURLを使用してください。
               </p>
             </div>
           )}
@@ -2143,7 +2501,8 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
 
 // --- メインアプリ画面 ---
 function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail = '', onLogout, nfcTaskId = null }) {
-  const isViewOnly = currentUser === '現場端末'; // スマホ・タブレットは閲覧専用（カード移動・編集・作成なし）
+  const isDragOnly = currentUser === '現場端末'; // スマホ・タブレットはドラッグ移動のみ制限（キーボード入力・カード作成は許可）
+  const isViewOnly = false; // 全端末でカード作成・編集を許可
   const [currentView, setCurrentView] = useState('board');
   const [isSendNotificationOpen, setIsSendNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -2181,6 +2540,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       return [...FLEET_CARS];
     }
   });
+  const [rentalCompanies, setRentalCompanies] = useState([]);
 
   // 予約だけ存在してタスクがないケースを補完しておく（カードが消えないようにする）
   useEffect(() => {
@@ -2393,9 +2753,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLinkSettingsOpen, setIsLinkSettingsOpen] = useState(false);
   const [isFleetSettingsOpen, setIsFleetSettingsOpen] = useState(false);
+  const [isRentalCompaniesSettingsOpen, setIsRentalCompaniesSettingsOpen] = useState(false);
   const [isColumnEditOpen, setIsColumnEditOpen] = useState(false);
   const [isStaffOptionsOpen, setIsStaffOptionsOpen] = useState(false);
   const [isInvoiceSettingsOpen, setIsInvoiceSettingsOpen] = useState(false);
+  const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [useIndonesian, setUseIndonesian] = useState(() => {
     try {
       return (typeof localStorage !== 'undefined' && localStorage.getItem(LANG_KEY) === 'id');
@@ -2566,6 +2928,21 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     }
     setFleetCars(Array.isArray(newFleet) ? newFleet : []);
   };
+  const handleSaveRentalCompanies = async (nextCompanies) => {
+    const nextList = Array.isArray(nextCompanies) ? nextCompanies : [];
+    const nextIds = new Set(nextList.map(c => c.id));
+    const removedIds = (rentalCompanies || []).filter(c => !nextIds.has(c.id)).map(c => c.id);
+    if (isFirebaseConfigured()) {
+      try {
+        await Promise.all(removedIds.map(id => deleteDocument('rentalCompanies', id)));
+        await Promise.all(nextList.map(c => upsertDocument('rentalCompanies', c.id, c)));
+        showSettingsToast('レンタル会社マスタを保存しました');
+      } catch (e) {
+        showSettingsToast('レンタル会社マスタの保存に失敗しました。通信を確認してください。');
+      }
+    }
+    setRentalCompanies(nextList);
+  };
   const [searchFilters, setSearchFilters] = useState({
     assignee: '', maker: '', car: '', receptionStaff: '', bodyStaff: '', paintStaff: '', number: '', color: ''
   });
@@ -2715,10 +3092,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         } catch (_) {}
       }
     });
+    const unsubscribeRentalCompanies = subscribeCollection('rentalCompanies', (items) => {
+      setRentalCompanies(Array.isArray(items) ? items : []);
+    });
     return () => {
       unsubscribeTasks && unsubscribeTasks();
       unsubscribeReservations && unsubscribeReservations();
       unsubscribeFleet && unsubscribeFleet();
+      unsubscribeRentalCompanies && unsubscribeRentalCompanies();
     };
   }, []);
 
@@ -2772,12 +3153,12 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     return (
     <div
       key={task.id}
-      draggable={!isViewOnly}
+      draggable={!isDragOnly}
       onDragStart={(e) => handleDragStart(e, task.id)}
       onDragEnd={() => setDraggedTaskId(null)}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!isDragOnly) e.dataTransfer.dropEffect = 'move'; }}
       onDrop={(e) => {
-        if (isViewOnly) return;
+        if (isDragOnly) return;
         const dragged = tasks.find(t => t.id === draggedTaskId);
         // 別ステータス（別の列）からドラッグしてきた場合は、
         // カード上ではなく列全体の onDrop でステータス変更を扱いたいので何もしない。
@@ -2788,7 +3169,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       }}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
-      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 ${isViewOnly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing hover:bg-gray-50'} relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
+      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 ${isDragOnly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing hover:bg-gray-50'} relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
@@ -2801,15 +3182,32 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
               <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-300 text-gray-800 text-[10px] font-medium" title="入庫ジャンル詳細">{entryDetailInitial}</span>
             )}
           </div>
-          {hasLoaner && (
-            <div
-              className="flex items-center bg-green-100 text-green-800 px-0.5 rounded gap-0.5 text-[9px] flex-shrink-0"
-              title={LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label}
-            >
-              <Truck className="w-3 h-3 flex-shrink-0" />
-              <span className="flex-shrink-0">代</span>
-            </div>
-          )}
+          {hasLoaner && (() => {
+            const info = computeLoanerDayInfo(task);
+            const letter = task.loanerType === 'other_rental' ? '他' : task.loanerType === 'rental' ? 'レ' : '代';
+            const baseColor = task.loanerType === 'other_rental' ? 'bg-orange-100 text-orange-800' : task.loanerType === 'rental' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+            const overrunColor = 'bg-red-100 text-red-800 ring-1 ring-red-400';
+            const color = info?.isOverrun ? overrunColor : baseColor;
+            const dayLabel = info && info.elapsedDays
+              ? (info.plannedDays ? `${info.elapsedDays}/${info.plannedDays}日` : `${info.elapsedDays}日`)
+              : '';
+            const pin = info?.isLongTerm ? '📌' : '';
+            const companyLabel = task.loanerType === 'other_rental' ? (task.otherRentalName || '') : '';
+            const titleParts = [LOANER_OPTIONS.find(o=>o.id===task.loanerType)?.label];
+            if (companyLabel) titleParts.push(companyLabel);
+            if (info?.elapsedDays) titleParts.push(`貸出 ${info.elapsedDays}日目${info.plannedDays ? ` / 予定 ${info.plannedDays}日` : ''}`);
+            if (info?.isOverrun) titleParts.push('⚠ 予定日数を超過');
+            if (info?.isLongTerm) titleParts.push('📌 10日以上の長期貸出');
+            return (
+              <div
+                className={`flex items-center px-0.5 rounded gap-0.5 text-[9px] flex-shrink-0 ${color}`}
+                title={titleParts.filter(Boolean).join(' / ')}
+              >
+                <Truck className="w-3 h-3 flex-shrink-0" />
+                <span className="flex-shrink-0">{letter}{dayLabel ? ` ${dayLabel}` : ''}{pin}</span>
+              </div>
+            );
+          })()}
         </div>
         {task.assignee}<br/>{task.car} {task.number}<br/>
         <span className="text-gray-500 font-normal inline-block mt-0.5">{formatInOutDate(task.inDate, task.outDate)}</span>
@@ -3221,17 +3619,17 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   };
 
   const handleDragStart = (e, id) => {
-    if (isViewOnly) return;
+    if (isDragOnly) return;
     setDraggedTaskId(id);
     e.dataTransfer.effectAllowed = 'move';
     // ドラッグキャンセル時（Esc・画面外等）に draggedTaskId を確実にクリアする
     const cleanup = () => { setDraggedTaskId((prev) => prev === id ? null : prev); e.target.removeEventListener('dragend', cleanup); };
     e.target.addEventListener('dragend', cleanup);
   };
-  const handleDragOver = (e) => { e.preventDefault(); if (!isViewOnly) e.dataTransfer.dropEffect = 'move'; };
+  const handleDragOver = (e) => { e.preventDefault(); if (!isDragOnly) e.dataTransfer.dropEffect = 'move'; };
   const handleDrop = (e, col) => {
     e.preventDefault();
-    if (isViewOnly || !draggedTaskId) return;
+    if (isDragOnly || !draggedTaskId) return;
     const status = getColumnPrimaryStatus(col);
     if (!status) { setDraggedTaskId(null); return; }
     const currentTask = tasks.find(t => t.id === draggedTaskId);
@@ -3490,6 +3888,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           )}
         </div>
         <div className="flex-1 flex items-center justify-end gap-1 sm:gap-3 min-w-0 flex-shrink-0">
+          <a href={(import.meta.env.VITE_BB_SEIBI_URL || '/seibi/')} className="p-1.5 sm:p-2 rounded text-blue-500 hover:text-blue-700 hover:bg-blue-50 flex-shrink-0 flex items-center gap-1" title="BB 整備">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" /><path d="m15 9-6 6m0-6 6 6" /></svg>
+            <span className="hidden sm:inline text-xs font-medium">整備</span>
+          </a>
           <button type="button" onClick={() => setIsSendNotificationOpen(true)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0" title="通知を送る">
             <Mailbox className="w-5 h-5" />
           </button>
@@ -3636,7 +4038,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           <button type="button" onClick={() => window.open(`${import.meta.env.BASE_URL}estimator/見積もりチェッカー2.html?${new URLSearchParams({ 担当者: currentUser || '' }).toString()}`, '_blank', 'noopener,noreferrer')} className="p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer" title="見積もり漏れチェッカー（担当者に受付担当者を反映）">
             <FileText className="w-5 h-5" />
           </button>
-          {!isViewOnly && <Settings onClick={() => setIsSettingsOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer mt-auto" title="設定" />}
+          <History onClick={() => setIsChangelogOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer mt-auto" title="更新履歴" />
+          {!isViewOnly && <Settings onClick={() => setIsSettingsOpen(true)} className="w-5 h-5 text-gray-400 hover:text-gray-600 cursor-pointer" title="設定" />}
         </div>
 
         <div className="flex-1 flex overflow-hidden bg-white min-h-0">
@@ -3648,7 +4051,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
               setReservations={setReservations}
               onReservationUpdate={handleReservationUpdate}
               setTasks={setTasks}
-              viewOnly={isViewOnly}
+              tasks={tasks}
+              rentalCompanies={rentalCompanies}
+              onSelectTask={(id) => setSelectedTaskId(id)}
+              viewOnly={isDragOnly}
             />
           ) : currentView === 'history' ? (
             <div className="flex-1 min-h-0 p-4 bg-white overflow-y-auto">
@@ -4052,6 +4458,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                   <TaskDetailPanel
                     task={selectedTask}
                     fleetCars={fleetCars}
+                    rentalCompanies={rentalCompanies}
                     defaultReceptionStaff={currentUser}
                     staffOptionsConfig={staffOptionsConfig}
                     onClose={() => setSelectedTaskId(null)}
@@ -4064,6 +4471,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                     moveTargetOptions={allColumnOptions}
                     useIndonesian={useIndonesian}
                     viewOnly={isViewOnly}
+                    usedBinderNumbers={new Set(tasks.filter(t => t.id !== selectedTask?.id && t.binderNumber).map(t => t.binderNumber))}
                   />
                 </div>
               )}
@@ -4076,6 +4484,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         <CreateTaskModal
           variant={currentView === 'gantt' ? 'side' : 'center'}
           fleetCars={fleetCars}
+          rentalCompanies={rentalCompanies}
           defaultReceptionStaff={currentUser}
           staffOptionsConfig={staffOptionsConfig}
           onClose={() => setIsCreateModalOpen(false)}
@@ -4093,21 +4502,57 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         />
       )}
 
+      {isChangelogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setIsChangelogOpen(false)} aria-hidden />
+          <div className="relative w-full max-w-lg bg-white rounded-xl shadow-xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-blue-600" />
+                <h2 className="text-lg font-bold text-gray-800">更新履歴</h2>
+              </div>
+              <button type="button" onClick={() => setIsChangelogOpen(false)} className="p-1 rounded hover:bg-gray-100"><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
+              {CHANGELOG.map((release) => (
+                <div key={release.version}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">{release.version}</span>
+                    <span className="text-sm text-gray-500">{release.date}</span>
+                  </div>
+                  <ul className="space-y-1 ml-1">
+                    {release.items.map((item, i) => (
+                      <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                        <span className="text-blue-400 mt-1 flex-shrink-0">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 text-center">
+              <span className="text-xs text-gray-400">BrightBoard by WBT</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
             className="absolute inset-0 bg-black/30"
-            onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
+            onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsRentalCompaniesSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
             aria-hidden
           />
           <div className="relative w-full max-w-md bg-white shadow-xl flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-bold text-gray-800">
-                {isInvoiceSettingsOpen ? '請求書設定（インボイス）' : isLinkSettingsOpen ? 'ボード間リンク設定' : isFleetSettingsOpen ? '代車マスタ設定' : isColumnEditOpen ? '列の増減' : isStaffOptionsOpen ? '担当者一覧の編集' : '設定'}
+                {isInvoiceSettingsOpen ? '請求書設定（インボイス）' : isLinkSettingsOpen ? 'ボード間リンク設定' : isFleetSettingsOpen ? '代車マスタ設定' : isRentalCompaniesSettingsOpen ? 'レンタル会社マスタ設定' : isColumnEditOpen ? '列の増減' : isStaffOptionsOpen ? '担当者一覧の編集' : '設定'}
               </h2>
               <button
                 type="button"
-                onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
+                onClick={() => { setIsSettingsOpen(false); setIsLinkSettingsOpen(false); setIsFleetSettingsOpen(false); setIsRentalCompaniesSettingsOpen(false); setIsColumnEditOpen(false); setIsStaffOptionsOpen(false); setIsInvoiceSettingsOpen(false); }}
                 className="p-1 rounded hover:bg-gray-100 text-gray-500"
               >
                 <X className="w-5 h-5" />
@@ -4149,6 +4594,12 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                   setTasks={setTasks}
                   onBack={() => setIsFleetSettingsOpen(false)}
                   onSaveFleet={handleSaveFleet}
+                />
+              ) : isRentalCompaniesSettingsOpen ? (
+                <RentalCompaniesMasterPanel
+                  rentalCompanies={rentalCompanies}
+                  onBack={() => setIsRentalCompaniesSettingsOpen(false)}
+                  onSave={handleSaveRentalCompanies}
                 />
               ) : (
                 <>
@@ -4277,6 +4728,18 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                       >
                         <Truck className="w-4 h-4" />
                         代車マスタを開く
+                      </button>
+                    </section>
+                    <section>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">レンタル会社マスタ</h3>
+                      <p className="text-sm text-gray-500 mb-3">他社レンタカーの会社名プルダウン候補を管理します（オリックス・ニコニコレンタカーなど）。</p>
+                      <button
+                        type="button"
+                        onClick={() => setIsRentalCompaniesSettingsOpen(true)}
+                        className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium text-sm flex items-center justify-center gap-2"
+                      >
+                        <Truck className="w-4 h-4" />
+                        レンタル会社マスタを開く
                       </button>
                     </section>
                     <section>
@@ -4420,7 +4883,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
 }
 
 // --- カード作成モーダルコンポーネント ---
-function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onSubmit }) {
+function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     maker: '', car: '', number: '', colorNo: '', assignee: '', lineUrl: '',
     entryPrimary: '個人',
@@ -4428,6 +4891,9 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
     inDate: getTodayString(), outDate: '',
     loanerType: 'none',
     loanerCarId: '',
+    otherRentalName: '',
+    rentalCompanyId: '',
+    plannedDays: '',
     receptionStaff: defaultReceptionStaff,
     bodyStaff: '',
     paintStaff: '',
@@ -4568,11 +5034,34 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                   <select
                     className="w-full max-w-[200px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
                     value={formData.loanerType}
-                    onChange={(e) => setFormData({...formData, loanerType: e.target.value, loanerCarId: e.target.value === 'none' ? '' : formData.loanerCarId})}
+                    onChange={(e) => setFormData({...formData, loanerType: e.target.value, loanerCarId: e.target.value === 'none' ? '' : formData.loanerCarId, otherRentalName: e.target.value === 'other_rental' ? formData.otherRentalName : '', rentalCompanyId: e.target.value === 'other_rental' ? formData.rentalCompanyId : '', plannedDays: e.target.value === 'none' ? '' : formData.plannedDays})}
                   >
                     {LOANER_OPTIONS.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                   </select>
-                  {formData.loanerType !== 'none' && (
+                  {formData.loanerType === 'other_rental' ? (
+                    <div className="flex flex-col gap-2">
+                      <select
+                        className="w-full max-w-[280px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
+                        value={formData.rentalCompanyId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          const picked = rentalCompanies.find(c => c.id === id);
+                          setFormData({...formData, rentalCompanyId: id, otherRentalName: picked ? picked.name : formData.otherRentalName});
+                        }}
+                      >
+                        <option value="">会社をマスタから選択（任意）</option>
+                        {rentalCompanies.filter(c => c.isActive !== false).map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <IMEInput
+                        className="w-full max-w-[280px] border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
+                        placeholder="レンタカー会社名（例: トヨタレンタカー）"
+                        value={formData.otherRentalName}
+                        onChange={(v) => setFormData({...formData, otherRentalName: v})}
+                      />
+                    </div>
+                  ) : formData.loanerType !== 'none' && (
                     <select
                       className="w-full max-w-[280px] border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
                       value={formData.loanerCarId}
@@ -4595,6 +5084,21 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, defaultRe
                         );
                       })}
                     </select>
+                  )}
+                  {formData.loanerType !== 'none' && (
+                    <label className="flex items-center gap-2 text-xs text-gray-600">
+                      予定貸出日数
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                        value={formData.plannedDays}
+                        onChange={(e) => setFormData({...formData, plannedDays: e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0)})}
+                        placeholder="日数"
+                      />
+                      <span className="text-gray-500">日（空欄可）</span>
+                    </label>
                   )}
                 </div>
               </div>
@@ -4931,7 +5435,7 @@ function Accordion({ title, children, defaultOpen = true }) {
 
 const MASTER_PASSCODE = '0514';
 
-function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false }) {
+function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false, usedBinderNumbers = new Set() }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
@@ -4986,31 +5490,24 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
           <div className="flex items-center text-sm text-gray-500 gap-2 overflow-hidden">
              <div className="w-5 h-5 bg-gradient-to-tr from-cyan-400 to-blue-500 rounded flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold">A</div>
             <span className="truncate">株式会社 清田自動車 / <span className="text-blue-600 font-medium">{issueKey}</span></span>
-             {!viewOnly && <button
-               type="button"
-               onClick={() => {
-                 let base = '';
-                 if (typeof window !== 'undefined') {
-                   const path = window.location.pathname || '';
-                   if (path.indexOf('/kiyota') === 0) base = window.location.origin + '/kiyota';
-                   else base = window.location.origin + (import.meta.env.BASE_URL || '/');
-                 }
-                 base = base.replace(/\/+$/, '');
-                 const url = `${base}/?nfcStandalone=1&nfcTaskId=${task.id}${useIndonesian ? '&lang=id' : ''}`;
-                 if (navigator.clipboard && navigator.clipboard.writeText) {
-                   navigator.clipboard.writeText(url).then(() => {
-                     alert('このカード用のNFC URLをコピーしました。\nNFC書き込みアプリに貼り付けてください。\n\n' + url);
-                   }).catch(() => {
-                     window.prompt('このカード用のNFC URLです。手動でコピーしてください。', url);
-                   });
-                 } else {
-                   window.prompt('このカード用のNFC URLです。手動でコピーしてください。', url);
-                 }
-               }}
-               className="ml-2 px-2 py-1 rounded border border-emerald-500 text-emerald-700 text-xs font-medium hover:bg-emerald-50 flex-shrink-0"
-             >
-               NFCタグ用URLを発行
-             </button>}
+             {!viewOnly && (
+                 <div className="ml-2 flex items-center gap-1.5 flex-shrink-0">
+                   <span className="text-xs text-gray-400">バインダー:</span>
+                   <select
+                     value={task.binderNumber || ''}
+                     onChange={(e) => effectiveOnUpdate({ ...task, binderNumber: e.target.value || null })}
+                     className="border border-gray-300 rounded px-1.5 py-0.5 text-xs font-medium bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                     style={{ minWidth: '56px' }}
+                   >
+                     <option value="">--</option>
+                     {Array.from({ length: 70 }, (_, i) => {
+                       const num = String(i + 1).padStart(2, '0');
+                       const inUse = usedBinderNumbers.has(num);
+                       return <option key={num} value={num} disabled={inUse}>{num}{inUse ? ' (使用中)' : ''}</option>;
+                     })}
+                   </select>
+                 </div>
+             )}
           </div>
           <button onClick={onClose} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded"><X className="w-5 h-5" /></button>
         </div>
@@ -5031,7 +5528,54 @@ function TaskDetailPanel({ task, fleetCars = [], defaultReceptionStaff = 'ログ
                  {LOANER_OPTIONS.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                </select>
             </div>
+            {task.loanerType === 'other_rental' && (
+              <>
+                <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+                  <span className="text-gray-500">会社マスタ:</span>
+                  <select
+                    value={task.rentalCompanyId || ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const picked = rentalCompanies.find(c => c.id === id);
+                      effectiveOnUpdate({ ...task, rentalCompanyId: id, otherRentalName: picked ? picked.name : task.otherRentalName });
+                    }}
+                    className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[280px] transition-colors bg-gray-50"
+                  >
+                    <option value="">マスタから選択（任意）</option>
+                    {rentalCompanies.filter(c => c.isActive !== false).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+                  <span className="text-gray-500">レンタカー会社:</span>
+                  <IMEInput
+                    value={task.otherRentalName || ''}
+                    onChange={(v) => effectiveOnUpdate({ ...task, otherRentalName: v })}
+                    placeholder="レンタカー会社名（例: トヨタレンタカー）"
+                    className="border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none w-full max-w-[280px] transition-colors bg-gray-50"
+                  />
+                </div>
+              </>
+            )}
             {task.loanerType && task.loanerType !== 'none' && (
+              <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+                <span className="text-gray-500">予定貸出日数:</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={task.plannedDays ?? ''}
+                    onChange={(e) => effectiveOnUpdate({ ...task, plannedDays: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })}
+                    placeholder="日数"
+                    className="w-20 border border-transparent hover:border-gray-300 focus:border-blue-500 rounded px-2 py-1 text-sm focus:outline-none bg-gray-50"
+                  />
+                  <span className="text-xs text-gray-500">日（空欄可）</span>
+                </div>
+              </div>
+            )}
+            {task.loanerType && task.loanerType !== 'none' && task.loanerType !== 'other_rental' && (
               <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
                 <span className="text-gray-500">代車（貸出車両）:</span>
                 <select
@@ -5472,19 +6016,30 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSignInLoading, setIsSignInLoading] = useState(false);
   const [nfcTaskId, setNfcTaskId] = useState(null);
-  const isDemoLoginBypass =
-    typeof window !== 'undefined' &&
-    (window.location.pathname.includes('/demodeta/demo') ||
-      window.location.pathname.includes('/kiyota/demo'));
+  const [nfcBinderNumber, setNfcBinderNumber] = useState(null);
+  const isDemoLoginBypass = import.meta.env.VITE_DEMO_MODE === 'true';
   const isNfcStandalone =
     typeof window !== 'undefined' &&
     (() => {
       const params = new URLSearchParams(window.location.search);
       const flag = params.get('nfcStandalone') === '1';
       const hasNfcId = !!params.get('nfcTaskId');
-      const isNarrow = window.innerWidth < 768; // スマホ幅ならスタンドアロン優先
-      return flag || (hasNfcId && isNarrow);
+      const isNarrow = window.innerWidth < 768;
+      // ハッシュルート: #/tag/XX でバインダー番号指定
+      const hash = window.location.hash || '';
+      const tagMatch = hash.match(/^#\/tag\/(.+)$/);
+      const hasTag = !!tagMatch;
+      return flag || (hasNfcId && isNarrow) || hasTag;
     })();
+
+  // バインダー番号（#/tag/XX）からnfcBinderNumberを設定
+  useEffect(() => {
+    const hash = window.location.hash || '';
+    const tagMatch = hash.match(/^#\/tag\/(.+)$/);
+    if (tagMatch) {
+      setNfcBinderNumber(tagMatch[1]);
+    }
+  }, []);
 
   useEffect(() => {
     const q = window.location.search;
@@ -5518,7 +6073,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // デモ用URL（/demodeta/demo または /kiyota/demo）ではログインなしで利用できるようにする
+    // デモビルド（VITE_DEMO_MODE=true）ではログインなしで利用できるようにする
     if (isDemoLoginBypass) {
       setCurrentUser('デモユーザー');
       setCurrentUserEmail('');
@@ -5654,7 +6209,7 @@ export default function App() {
       )}
       <div style={isDemoMode ? { paddingTop: 'calc(2.5rem + env(safe-area-inset-top))' } : undefined}>
         {isNfcStandalone ? (
-          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
+          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} nfcBinderNumber={nfcBinderNumber} />
         ) : (
           <KanbanApp currentUser={currentUser} currentUserEmail={currentUserEmail} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         )}
