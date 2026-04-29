@@ -1,9 +1,8 @@
 import React from 'react'
 
 // onChange(event) → onChange(string) の変換のみを行う薄いラッパー。
-// composition イベントは React 18 内蔵の処理に任せる。
-// 2026-03-30 / 2026-04-30: composingRef 手動制御パターンは macOS Chrome IME と
-// 競合し全入力不能になる事故を起こしたため、絶対に再導入しない。
+// composition イベントの手動制御は禁止（React 18 内蔵処理に任せる）。
+// 詳細・再発防止ガードは scripts/check-forbidden-patterns.mjs を参照。
 export function IMEInput({ value, onChange, component = 'input', ...rest }) {
   const Component = component
   const handleChange = (e) => onChange(e.target.value)
