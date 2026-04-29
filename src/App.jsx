@@ -2351,6 +2351,23 @@ function IncidentReportModal({ task, onClose, currentUser = '', currentUserEmail
         read: false,
       };
       await upsertDocument('notifications', id, payload);
+      // 秘書Bot Worker 経由で Discord 整形通知（fire-and-forget / 失敗してもユーザー操作は続行）
+      const botUrl = import.meta.env.VITE_SECRETARY_BOT_URL;
+      const botSecret = import.meta.env.VITE_SECRETARY_BOT_INCIDENT_SECRET;
+      if (botUrl && botSecret) {
+        fetch(`${botUrl.replace(/\/$/, '')}/incident/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Incident-Secret': botSecret },
+          body: JSON.stringify({
+            notificationId: id,
+            fromUser: payload.fromUser,
+            fromEmail: payload.fromEmail,
+            message: payload.message,
+            cardSnapshot: payload.cardSnapshot,
+            createdAt: payload.createdAt,
+          }),
+        }).catch((e) => console.warn('[incident] Discord通知の送信に失敗（Firestore保存は成功）:', e));
+      }
       setStatus('success');
       setMessage('');
       setTimeout(() => onClose(), 1200);
