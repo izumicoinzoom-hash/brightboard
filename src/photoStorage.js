@@ -21,7 +21,7 @@ import {
   where,
   serverTimestamp
 } from 'firebase/firestore';
-import { getFirestoreDb } from './firebase';
+import { getFirestoreDb, getFirebaseAuth } from './firebase';
 
 // ---------------------------------------------------------------------------
 // Storage シングルトン
@@ -306,19 +306,30 @@ export async function uploadPhoto(blob, options) {
   if (mediaType !== 'image' && mediaType !== 'video') {
     throw new Error('uploadPhoto: mediaType must be image or video');
   }
-  if (!user || !user.uid) {
-    throw new Error('uploadPhoto: user.uid is required');
-  }
-
   // Firestore/Storage 初期化を確定させる（getFirestoreDb 経由で initializeApp 完了）
   const db = getFirestoreDb();
   if (!db) {
     throw new Error('uploadPhoto: Firestore is not configured');
   }
 
+  // user.uid を解決: 引数で渡されてなければ Firebase Auth の currentUser から取得
+  let resolvedUid = user && user.uid ? user.uid : null;
+  let resolvedName = user && user.displayName ? user.displayName : (typeof user === 'string' ? user : '');
+  if (!resolvedUid) {
+    const auth = getFirebaseAuth();
+    const fbUser = auth && auth.currentUser;
+    if (fbUser && fbUser.uid) {
+      resolvedUid = fbUser.uid;
+      if (!resolvedName) resolvedName = fbUser.displayName || fbUser.email || '';
+    }
+  }
+  if (!resolvedUid) {
+    throw new Error('uploadPhoto: ログインが必要です（Firebase Auth に currentUser がありません）');
+  }
+
   const taskId = task.id;
-  const userId = user.uid;
-  const userName = user.displayName || '';
+  const userId = resolvedUid;
+  const userName = resolvedName;
 
   // 後で audit に使うためエラー文脈を最後まで握っておく
   let stage = 'init';
