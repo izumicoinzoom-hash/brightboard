@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>BrightBoard NFC書き込み用URLジェネレーター</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    background: #f3f4f6;
+    color: #1f2937;
+    line-height: 1.6;
+  }
+  header {
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 16px 24px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header .sub { color: #6b7280; font-size: 13px; margin-top: 2px; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px; }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+  label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 4px; font-weight: 600; }
+  input[type=text], input[type=number] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus { outline: 2px solid #3b82f6; outline-offset: -1px; border-color: transparent; }
+  .row { display: grid; gap: 16px; grid-template-columns: 1fr; margin-bottom: 12px; }
+  @media (min-width: 640px) { .row.cols-2 { grid-template-columns: 1fr 1fr; } }
+  button {
+    cursor: pointer;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #374151;
+  }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button.primary:hover { background: #1d4ed8; }
+  button:hover { background: #f9fafb; }
+  button.copied { background: #10b981 !important; color: #fff !important; border-color: #10b981 !important; }
+  .url-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-top: 4px;
+  }
+  .url-row input {
+    flex: 1;
+    background: #f9fafb;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .badge.tag { background: #dbeafe; color: #1e40af; }
+  .badge.cam { background: #fee2e2; color: #b91c1c; }
+  .single-result { margin-top: 16px; padding-top: 16px; border-top: 1px dashed #e5e7eb; }
+  .single-result h3 { font-size: 14px; margin: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid #e5e7eb; padding: 10px 8px; text-align: left; vertical-align: middle; }
+  th { background: #f9fafb; font-size: 12px; color: #4b5563; }
+  td.num { font-weight: 700; font-size: 16px; width: 60px; text-align: center; }
+  td.url { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; word-break: break-all; }
+  td.action { width: 80px; text-align: right; }
+  td.url.tag { color: #1e40af; }
+  td.url.cam { color: #b91c1c; }
+  .hint {
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    color: #92400e;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .hint code { background: #fff; padding: 1px 4px; border-radius: 3px; }
+  .controls { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .controls > div { flex: 1; min-width: 120px; }
+  .controls > .btn-wrap { flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BrightBoard NFC書き込み用URLジェネレーター</h1>
+  <div class="sub">バインダー番号から「列移動用」「撮影用」のNFC書き込みURLを生成します</div>
+</header>
+
+<main>
+
+  <div class="hint">
+    使い方: バインダー番号を入力 → URLを「コピー」ボタンでクリップボードへ → NFC書き込みソフト（ZW-12026-12付属など）に貼り付けて書き込み。
+    <br>列移動用 <span class="badge tag">TAG</span> と 撮影用 <span class="badge cam">CAM</span> は同じバインダーに2枚並べて貼ります（撮影用は赤マーク推奨）。
+  </div>
+
+  <div class="card">
+    <h2>共通設定</h2>
+    <div class="row cols-2">
+      <div>
+        <label for="baseUrl">本番ベースURL</label>
+        <input type="text" id="baseUrl" value="https://withbt.com/kiyota/">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1. 単発生成（バインダー1枚分）</h2>
+    <div class="controls">
+      <div>
+        <label for="singleNumber">バインダー番号</label>
+        <input type="text" id="singleNumber" placeholder="例: 12 / A-03 など" autocomplete="off">
+      </div>
+      <div class="btn-wrap">
+        <button class="primary" id="singleGenerate">生成</button>
+      </div>
+    </div>
+
+    <div id="singleResult" class="single-result" style="display:none;">
+      <h3><span class="badge tag">TAG</span>列移動用URL</h3>
+      <div class="url-row">
+        <input type="text" id="singleTagUrl" readonly>
+        <button data-copy-target="singleTagUrl">コピー</button>
+      </div>
+
+      <h3><span class="badge cam">CAM</span>撮影用URL</h3>
+      <div class="url-row">
+        <input type="text" id="singleCamUrl" readonly>
+        <button data-copy-target="singleCamUrl">コピー</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. 一括生成（連番）</h2>
+    <div class="controls">
+      <div>
+        <label for="rangeFrom">開始番号</label>
+        <input type="number" id="rangeFrom" value="1" min="1">
+      </div>
+      <div>
+        <label for="rangeTo">終了番号</label>
+        <input type="number" id="rangeTo" value="20" min="1">
+      </div>
+      <div>
+        <label for="rangePrefix">接頭辞（任意）</label>
+        <input type="text" id="rangePrefix" placeholder="例: A- （空欄で数字のみ）">
+      </div>
+      <div>
+        <label for="rangePad">ゼロ埋め桁数</label>
+        <input type="number" id="rangePad" value="0" min="0" max="6">
+      </div>
+      <div class="btn-wrap">
+        <button class="primary" id="rangeGenerate">一括生成</button>
+      </div>
+    </div>
+
+    <div id="rangeResult" style="margin-top:16px; display:none;">
+      <div style="margin-bottom:8px;">
+        <button id="copyAllTag">全TAGコピー（改行区切り）</button>
+        <button id="copyAllCam">全CAMコピー（改行区切り）</button>
+        <button id="downloadCsv">CSVダウンロード</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="rangeTable">
+          <thead>
+            <tr>
+              <th>バインダー</th>
+              <th><span class="badge tag">TAG</span>列移動用URL</th>
+              <th></th>
+              <th><span class="badge cam">CAM</span>撮影用URL</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  function buildUrls(binderNo) {
+    const base = ($('baseUrl').value || '').trim().replace(/\/+$/, '/') || 'https://withbt.com/kiyota/';
+    const enc = encodeURIComponent(String(binderNo).trim());
+    return {
+      tag: `${base}#/tag/${enc}`,
+      cam: `${base}#/cam/${enc}`,
+    };
+  }
+
+  async function copyToClipboard(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (button) {
+        const orig = button.textContent;
+        button.classList.add('copied');
+        button.textContent = 'コピーしました';
+        setTimeout(() => {
+          button.classList.remove('copied');
+          button.textContent = orig;
+        }, 1200);
+      }
+    } catch (e) {
+      window.alert('コピーに失敗しました: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // クリップボードコピーボタン共通
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-copy-target]');
+    if (!btn) return;
+    const target = $(btn.getAttribute('data-copy-target'));
+    if (target) copyToClipboard(target.value, btn);
+  });
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-copy-text]');
+    if (!btn) return;
+    copyToClipboard(btn.getAttribute('data-copy-text'), btn);
+  });
+
+  // 単発生成
+  function runSingle() {
+    const num = ($('singleNumber').value || '').trim();
+    if (!num) {
+      $('singleResult').style.display = 'none';
+      return;
+    }
+    const { tag, cam } = buildUrls(num);
+    $('singleTagUrl').value = tag;
+    $('singleCamUrl').value = cam;
+    $('singleResult').style.display = '';
+  }
+  $('singleGenerate').addEventListener('click', runSingle);
+  $('singleNumber').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSingle();
+  });
+
+  // 一括生成
+  function pad(n, width) {
+    if (!width || width <= 0) return String(n);
+    const s = String(n);
+    return s.length >= width ? s : '0'.repeat(width - s.length) + s;
+  }
+
+  let rangeRows = []; // [{no, tag, cam}]
+
+  function runRange() {
+    const from = parseInt($('rangeFrom').value, 10);
+    const to = parseInt($('rangeTo').value, 10);
+    const prefix = ($('rangePrefix').value || '');
+    const padW = parseInt($('rangePad').value, 10) || 0;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 1 || to < from || to - from > 999) {
+      window.alert('範囲が不正です（1〜1000の範囲で開始≦終了）');
+      return;
+    }
+    rangeRows = [];
+    const tbody = $('rangeTable').querySelector('tbody');
+    tbody.innerHTML = '';
+    for (let i = from; i <= to; i++) {
+      const no = prefix + pad(i, padW);
+      const { tag, cam } = buildUrls(no);
+      rangeRows.push({ no, tag, cam });
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="num">${escapeHtml(no)}</td>
+        <td class="url tag">${escapeHtml(tag)}</td>
+        <td class="action"><button data-copy-text="${escapeAttr(tag)}">コピー</button></td>
+        <td class="url cam">${escapeHtml(cam)}</td>
+        <td class="action"><button data-copy-text="${escapeAttr(cam)}">コピー</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+    $('rangeResult').style.display = '';
+  }
+  $('rangeGenerate').addEventListener('click', runRange);
+
+  $('copyAllTag').addEventListener('click', (e) => {
+    if (rangeRows.length === 0) return;
+    copyToClipboard(rangeRows.map(r => r.tag).join('\n'), e.currentTarget);
+  });
+  $('copyAllCam').addEventListener('click', (e) => {
+    if (rangeRows.length === 0) return;
+    copyToClipboard(rangeRows.map(r => r.cam).join('\n'), e.currentTarget);
+  });
+  $('downloadCsv').addEventListener('click', () => {
+    if (rangeRows.length === 0) return;
+    const lines = ['binder,tag_url,cam_url'];
+    for (const r of rangeRows) {
+      lines.push([csv(r.no), csv(r.tag), csv(r.cam)].join(','));
+    }
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nfc-urls-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  function csv(s) {
+    const v = String(s);
+    if (/[",\r\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function escapeAttr(s) {
+    return escapeHtml(s);
+  }
+})();
+</script>
+</body>
+</html>

@@ -34,7 +34,11 @@ import { uploadPhoto } from './photoStorage';
 
 // ---------- 定数 ----------
 const VIDEO_MAX_MS = 30_000; // 30秒上限
-const JPEG_QUALITY = 0.92;
+// Cogni PhotoBase（jpg/jpeg/png対応・1案件100枚・1回20枚）への伝送を前提に
+// 1枚あたり0.7〜1.5MBに収める設定。長辺2400px超は2000pxへ縮小ガード。
+const JPEG_QUALITY = 0.85;
+const MAX_LONG_SIDE = 2400;
+const RESIZE_LONG_SIDE = 2000;
 const PHASES = ['IN', 'B', 'P', 'OUT'];
 const GRID_MODES = ['off', '3x3', 'stripe']; // 3段切替
 
@@ -174,8 +178,13 @@ export default function CameraCapture({
   const capturePhoto = useCallback(() => {
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return;
-    const w = video.videoWidth;
-    const h = video.videoHeight;
+    const srcW = video.videoWidth;
+    const srcH = video.videoHeight;
+    // 高画素端末で長辺がMAX_LONG_SIDEを超える場合はRESIZE_LONG_SIDEへ縮小
+    const longSide = Math.max(srcW, srcH);
+    const scale = longSide > MAX_LONG_SIDE ? RESIZE_LONG_SIDE / longSide : 1;
+    const w = Math.round(srcW * scale);
+    const h = Math.round(srcH * scale);
     if (!canvasRef.current) {
       canvasRef.current = document.createElement('canvas');
     }

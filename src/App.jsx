@@ -2680,6 +2680,136 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
   );
 }
 
+// --- NFCタグ用: 撮影専用ページ（#/cam/{binderNo}） ---
+// バインダー番号からタスクを解決し、CameraCaptureを全画面で自動open。
+// 列移動モード(#/tag/{binderNo})に切り替えるボタンも提供する。
+function CameraStandalonePage({ currentUser = 'ログインユーザー', currentUserEmail = '', onLogout, nfcBinderNumber = null }) {
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setError('Firebaseの設定がありません。.env に VITE_FIREBASE_* を設定してください。');
+      setIsLoading(false);
+      return;
+    }
+    const unsubscribe = subscribeCollection('boards/main/tasks', (items) => {
+      setTasks(Array.isArray(items) ? items : []);
+      setIsLoading(false);
+    });
+    return () => unsubscribe && unsubscribe();
+  }, []);
+
+  const task = useMemo(() => {
+    if (!nfcBinderNumber || tasks.length === 0) return null;
+    return tasks.find((t) => t.binderNumber === nfcBinderNumber) || null;
+  }, [nfcBinderNumber, tasks]);
+
+  // タスクが解決され次第、自動でカメラを開く
+  useEffect(() => {
+    if (task && !isCameraOpen) {
+      setIsCameraOpen(true);
+    }
+  }, [task]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const goToTagMode = () => {
+    if (!nfcBinderNumber) return;
+    window.location.hash = `#/tag/${nfcBinderNumber}`;
+    window.location.reload();
+  };
+
+  const baseClasses =
+    'min-h-screen bg-gray-100 flex flex-col items-stretch justify-start font-sans text-gray-800 text-base';
+
+  return (
+    <div className={baseClasses}>
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-rose-400 to-orange-500 shadow-sm border-2 border-white" />
+          <div className="flex flex-col">
+            <span className="text-xl font-semibold text-gray-500">BrightBoard - 清田自動車</span>
+            <span className="text-2xl font-bold text-gray-800">NFC 撮影モード</span>
+          </div>
+        </div>
+        {typeof onLogout === 'function' && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-xl px-5 py-2.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+          >
+            ログアウト
+          </button>
+        )}
+      </header>
+
+      <main className="flex-1 flex items-center justify-center px-4 py-5">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-md border border-gray-200 p-5 space-y-4">
+          {isLoading && <div className="text-xl text-gray-700">読み込み中です...</div>}
+          {!isLoading && error && (
+            <div className="px-4 py-3 rounded bg-red-50 border border-red-200 text-xl text-red-700">{error}</div>
+          )}
+          {!isLoading && !task && nfcBinderNumber && (
+            <div className="space-y-4 text-center">
+              <div className="text-6xl font-black text-gray-300">{nfcBinderNumber}</div>
+              <p className="font-semibold text-amber-700 text-xl">このバインダーは現在未割当です</p>
+              <p className="text-gray-500 text-base">フロントでカードを作成し、バインダー No.{nfcBinderNumber} を選択してください。</p>
+            </div>
+          )}
+          {!isLoading && !nfcBinderNumber && (
+            <div className="space-y-4 text-xl">
+              <p className="font-semibold text-amber-700 text-xl">NFCタグのURLが正しくありません。</p>
+              <p className="text-gray-700 text-base">バインダーの撮影用NFCタグを使用してください。</p>
+            </div>
+          )}
+          {!isLoading && task && (
+            <>
+              <div className="text-sm text-gray-600 mb-1">対象カード</div>
+              <div className="px-3 py-2 rounded bg-gray-50 border border-gray-200 text-base">
+                <div className="font-semibold text-gray-800 mb-1">
+                  {task.assignee || '担当未設定'} / {task.car || '車種未設定'} {task.number || ''}
+                </div>
+                <div className="text-sm text-gray-600">バインダー No.{nfcBinderNumber}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                className="w-full px-6 py-5 rounded-xl bg-rose-600 text-white text-2xl font-bold tracking-wide hover:bg-rose-700"
+              >
+                カメラを開く
+              </button>
+              <button
+                type="button"
+                onClick={goToTagMode}
+                className="w-full px-6 py-4 rounded-xl border border-gray-300 bg-white text-xl text-gray-700 hover:bg-gray-50"
+              >
+                列移動モードに切り替え
+              </button>
+            </>
+          )}
+        </div>
+      </main>
+
+      {isCameraOpen && task && (
+        <CameraCapture
+          open={isCameraOpen}
+          task={task}
+          currentUser={{ displayName: currentUser, email: currentUserEmail }}
+          onClose={() => setIsCameraOpen(false)}
+          onPhotoSaved={(meta) => {
+            console.log('photo saved (cam standalone)', meta);
+          }}
+          onError={(err) => {
+            console.error('camera upload error (cam standalone)', err);
+            alert(`写真の保存に失敗しました: ${err && err.message ? err.message : err}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // --- メインアプリ画面 ---
 function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail = '', onLogout, nfcTaskId = null }) {
   const isDragOnly = currentUser === '現場端末'; // スマホ・タブレットはドラッグ移動のみ制限（キーボード入力・カード作成は許可）
@@ -6366,6 +6496,8 @@ export default function App() {
   const [isSignInLoading, setIsSignInLoading] = useState(false);
   const [nfcTaskId, setNfcTaskId] = useState(null);
   const [nfcBinderNumber, setNfcBinderNumber] = useState(null);
+  // NFCモード: 'tag'=列移動 / 'cam'=撮影 / null=通常画面
+  const [nfcMode, setNfcMode] = useState(null);
   const isDemoLoginBypass = import.meta.env.VITE_DEMO_MODE === 'true';
   const isNfcStandalone =
     typeof window !== 'undefined' &&
@@ -6374,19 +6506,24 @@ export default function App() {
       const flag = params.get('nfcStandalone') === '1';
       const hasNfcId = !!params.get('nfcTaskId');
       const isNarrow = window.innerWidth < 768;
-      // ハッシュルート: #/tag/XX でバインダー番号指定
+      // ハッシュルート: #/tag/XX で列移動、#/cam/XX で撮影モード
       const hash = window.location.hash || '';
-      const tagMatch = hash.match(/^#\/tag\/(.+)$/);
-      const hasTag = !!tagMatch;
-      return flag || (hasNfcId && isNarrow) || hasTag;
+      const hasTag = /^#\/tag\/(.+)$/.test(hash);
+      const hasCam = /^#\/cam\/(.+)$/.test(hash);
+      return flag || (hasNfcId && isNarrow) || hasTag || hasCam;
     })();
 
-  // バインダー番号（#/tag/XX）からnfcBinderNumberを設定
+  // バインダー番号（#/tag/XX, #/cam/XX）からnfcBinderNumberとnfcModeを設定
   useEffect(() => {
     const hash = window.location.hash || '';
     const tagMatch = hash.match(/^#\/tag\/(.+)$/);
-    if (tagMatch) {
+    const camMatch = hash.match(/^#\/cam\/(.+)$/);
+    if (camMatch) {
+      setNfcBinderNumber(camMatch[1]);
+      setNfcMode('cam');
+    } else if (tagMatch) {
       setNfcBinderNumber(tagMatch[1]);
+      setNfcMode('tag');
     }
   }, []);
 
@@ -6558,7 +6695,16 @@ export default function App() {
       )}
       <div style={isDemoMode ? { paddingTop: 'calc(2.5rem + env(safe-area-inset-top))' } : undefined}>
         {isNfcStandalone ? (
-          <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} nfcBinderNumber={nfcBinderNumber} />
+          nfcMode === 'cam' ? (
+            <CameraStandalonePage
+              currentUser={currentUser}
+              currentUserEmail={currentUserEmail}
+              onLogout={handleLogout}
+              nfcBinderNumber={nfcBinderNumber}
+            />
+          ) : (
+            <NfcStandalonePage currentUser={currentUser} onLogout={handleLogout} nfcTaskId={nfcTaskId} nfcBinderNumber={nfcBinderNumber} />
+          )
         ) : (
           <KanbanApp currentUser={currentUser} currentUserEmail={currentUserEmail} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         )}
