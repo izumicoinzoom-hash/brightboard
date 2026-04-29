@@ -1,0 +1,14 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "photos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "taskId", "order": "ASCENDING" },
+        { "fieldPath": "phase", "order": "ASCENDING" },
+        { "fieldPath": "filename", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

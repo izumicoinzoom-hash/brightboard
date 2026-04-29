@@ -1,0 +1,19 @@
+[
+  {
+    "origin": [
+      "https://withbt.com",
+      "https://www.withbt.com",
+      "http://localhost:5173",
+      "http://localhost:4173"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Disposition",
+      "Authorization",
+      "X-Goog-Resumable",
+      "X-Goog-Meta-*"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
