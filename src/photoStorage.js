@@ -240,14 +240,15 @@ export async function getNextSequence(taskId, phase, dateStr) {
   const db = getFirestoreDb();
   if (!db) throw new Error('getNextSequence: Firestore not configured');
 
-  const colRef = collection(db, `boards/main/tasks/${taskId}/photos`);
+  // フラットコレクション `boards/main/photos` に taskId フィールドで紐付け。
+  // サブコレクション方式だと taskId ごとに index が必要になるためフラット化。
+  const colRef = collection(db, 'boards/main/photos');
   const prefix = `${phase}_${dateStr}_`;
   const prefixEnd = `${phase}_${dateStr}_\uf8ff`;
 
-  // phase 完全一致 + filename 範囲で絞り込み（複合インデックスが必要になり得るが
-  // phase の == は範囲スキャンと両立可能）。失敗時はそのまま throw。
   const q = query(
     colRef,
+    where('taskId', '==', taskId),
     where('phase', '==', phase),
     where('filename', '>=', prefix),
     where('filename', '<=', prefixEnd)
@@ -395,8 +396,9 @@ export async function uploadPhoto(blob, options) {
 
     // 7. Firestore メタデータ書き込み ----------------------------------------
     stage = 'firestore_metadata';
-    const photosCol = collection(db, `boards/main/tasks/${taskId}/photos`);
+    const photosCol = collection(db, 'boards/main/photos');
     const docRef = await addDoc(photosCol, {
+      taskId,
       filename,
       phase,
       mediaType,
