@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:demo": "vite build --mode demo && node -e \"require('fs').copyFileSync('public/.htaccess.demo','dist/.htaccess')\"",
+    "guard": "node scripts/check-forbidden-patterns.mjs",
+    "build": "node scripts/check-forbidden-patterns.mjs && vite build",
+    "build:demo": "node scripts/check-forbidden-patterns.mjs && vite build --mode demo && node -e \"require('fs').copyFileSync('public/.htaccess.demo','dist/.htaccess')\"",
     "preview": "vite preview"
   },
   "dependencies": {
