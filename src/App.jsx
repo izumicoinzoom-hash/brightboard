@@ -2270,6 +2270,160 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
   );
 }
 
+// --- 不具合通知モーダル（カード→目安箱DnDで起動） ---
+// 既存の手動 SendNotificationModal とは独立。送信先はオーナー固定。
+function IncidentReportModal({ task, onClose, currentUser = '', currentUserEmail = '', boardColumnsConfig = {}, useIndonesian = false }) {
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [status, setStatus] = useState(''); // 'success' | 'error' | ''
+  const [errorDetail, setErrorDetail] = useState('');
+
+  // status → ラベル解決（全ボードを横断して該当列を探す）
+  const resolveStatusLabel = (statusId) => {
+    if (!statusId) return '';
+    for (const bid of Object.keys(boardColumnsConfig || {})) {
+      const cols = getColumnsForBoard(boardColumnsConfig, bid) || [];
+      for (const col of cols) {
+        const sts = getColumnStatuses(col);
+        if (Array.isArray(sts) && sts.includes(statusId)) {
+          return getColumnName(col, useIndonesian);
+        }
+      }
+    }
+    return statusId;
+  };
+
+  const buildSnapshot = () => {
+    if (!task) return null;
+    const recent = Array.isArray(task.statusHistory) ? task.statusHistory.slice(-5) : [];
+    return {
+      taskId: task.id,
+      assignee: task.assignee || '',
+      maker: task.maker || '',
+      car: task.car || '',
+      number: task.number || '',
+      status: task.status || '',
+      statusLabel: resolveStatusLabel(task.status),
+      statusEnteredAt: task.statusEnteredAt || null,
+      receptionStaff: task.receptionStaff || '',
+      bankinStaff: task.bankinStaff || task.bodyStaff || '',
+      inDate: task.inDate || null,
+      outDate: task.outDate || null,
+      loanerType: task.loanerType || null,
+      recentStatusHistory: recent.map((h) => ({
+        status: h?.status || '',
+        statusLabel: resolveStatusLabel(h?.status),
+        enteredAt: h?.enteredAt || null,
+        exitedAt: h?.exitedAt || null,
+        nextStatus: h?.nextStatus || null,
+        byUser: h?.byUser || null,
+      })),
+    };
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const text = (message || '').trim();
+    if (!text || !task) return;
+    if (!isFirebaseConfigured()) {
+      setStatus('error');
+      setErrorDetail('VITE_FIREBASE_* の環境変数が設定されていません。');
+      return;
+    }
+    setIsSending(true);
+    setStatus('');
+    setErrorDetail('');
+    try {
+      const fromUser = currentUser || '（未設定）';
+      const fromEmail = (currentUserEmail || '').toLowerCase();
+      const toEmail = getIncidentReportTo();
+      const id = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `n_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const payload = {
+        kind: 'incident_report',
+        fromUser,
+        fromEmail,
+        toEmail,
+        message: text,
+        cardSnapshot: buildSnapshot(),
+        createdAt: new Date().toISOString(),
+        read: false,
+      };
+      await upsertDocument('notifications', id, payload);
+      setStatus('success');
+      setMessage('');
+      setTimeout(() => onClose(), 1200);
+    } catch (err) {
+      setStatus('error');
+      const msg = (err && err.message) ? String(err.message) : '';
+      const hint = /permission|権限|forbidden/i.test(msg)
+        ? 'Firestore の notifications コレクションで、認証済みユーザーの書き込みを許可するルールを確認してください。'
+        : msg || 'Firebase の設定とネットワークを確認してください。';
+      setErrorDetail(hint);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  if (!task) return null;
+  const carLine = `${task.maker || ''} ${task.car || ''}`.trim();
+  const statusLabel = resolveStatusLabel(task.status);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <Mailbox className="w-5 h-5 text-amber-600" />
+            不具合通知（目安箱）
+          </h2>
+          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm space-y-1">
+            <div className="font-semibold text-amber-900">対象カード</div>
+            <div className="text-gray-800">
+              <div><span className="text-gray-500 text-xs">お客様: </span>{task.assignee || '（未設定）'}</div>
+              <div><span className="text-gray-500 text-xs">車両: </span>{carLine || '（未設定）'} {task.number || ''}</div>
+              <div><span className="text-gray-500 text-xs">現ステータス: </span>{statusLabel || '（不明）'}</div>
+              {task.receptionStaff && (
+                <div><span className="text-gray-500 text-xs">受付: </span>{task.receptionStaff}</div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">症状・気づいたこと</label>
+            <IMETextarea
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm min-h-[120px] resize-y"
+              placeholder="例: 3日間ステータスが変わってない / 鍵がどこにあるか分からない / 部品取り寄せが止まってる気がする"
+              value={message}
+              onChange={(v) => setMessage(v)}
+              disabled={isSending}
+            />
+            <p className="text-xs text-gray-500 mt-1">送信先: オーナー（清田）。原因調査の上、Discord でフィードバックされます。</p>
+          </div>
+          {status === 'error' && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm space-y-1">
+              <div>送信に失敗しました。</div>
+              {errorDetail && <div className="text-xs mt-1">{errorDetail}</div>}
+            </div>
+          )}
+          {status === 'success' && (
+            <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">送信しました。</div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={isSending || !(message || '').trim()} className="flex-1 px-4 py-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSending ? '送信中...' : '不具合を報告する'}
+            </button>
+            <button type="button" onClick={onClose} disabled={isSending} className="px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">キャンセル</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- NFCタグ用: 列移動だけを行うシンプルな専用画面 ---
 function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout, nfcTaskId: nfcTaskIdProp = null, nfcBinderNumber = null }) {
   const useIndonesian = (() => {
@@ -2509,6 +2663,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [pastLoginUsers, setPastLoginUsers] = useState([]); // 目安箱の送り先リスト（過去にログインしたユーザー）
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const notificationPanelRef = useRef(null);
+  // カード→目安箱DnD不具合通知用
+  const [isIncidentReportOpen, setIsIncidentReportOpen] = useState(false);
+  const [incidentReportTask, setIncidentReportTask] = useState(null);
+  const [isCardDragActive, setIsCardDragActive] = useState(false);
+  const [isMailboxDragOver, setIsMailboxDragOver] = useState(false);
   const [currentBoardId, setCurrentBoardId] = useState('main');
   const [tasks, setTasks] = useState(() => {
     try {
@@ -3621,9 +3780,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const handleDragStart = (e, id) => {
     if (isDragOnly) return;
     setDraggedTaskId(id);
-    e.dataTransfer.effectAllowed = 'move';
-    // ドラッグキャンセル時（Esc・画面外等）に draggedTaskId を確実にクリアする
-    const cleanup = () => { setDraggedTaskId((prev) => prev === id ? null : prev); e.target.removeEventListener('dragend', cleanup); };
+    setIsCardDragActive(true);
+    // 列移動 + 目安箱コピーの両方を許可
+    e.dataTransfer.effectAllowed = 'copyMove';
+    // ドラッグキャンセル時（Esc・画面外等）に状態を確実にクリアする
+    const cleanup = () => {
+      setDraggedTaskId((prev) => prev === id ? null : prev);
+      setIsCardDragActive(false);
+      setIsMailboxDragOver(false);
+      e.target.removeEventListener('dragend', cleanup);
+    };
     e.target.addEventListener('dragend', cleanup);
   };
   const handleDragOver = (e) => { e.preventDefault(); if (!isDragOnly) e.dataTransfer.dropEffect = 'move'; };
@@ -3892,7 +4058,42 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" /><path d="m15 9-6 6m0-6 6 6" /></svg>
             <span className="hidden sm:inline text-xs font-medium">整備</span>
           </a>
-          <button type="button" onClick={() => setIsSendNotificationOpen(true)} className="p-1.5 sm:p-2 rounded text-gray-500 hover:text-gray-700 flex-shrink-0" title="通知を送る">
+          <button
+            type="button"
+            onClick={() => setIsSendNotificationOpen(true)}
+            onDragOver={(e) => {
+              if (!isCardDragActive) return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'copy';
+            }}
+            onDragEnter={(e) => {
+              if (!isCardDragActive) return;
+              e.preventDefault();
+              setIsMailboxDragOver(true);
+            }}
+            onDragLeave={() => setIsMailboxDragOver(false)}
+            onDrop={(e) => {
+              if (!isCardDragActive || !draggedTaskId) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const task = tasks.find((t) => t.id === draggedTaskId) || null;
+              setIsMailboxDragOver(false);
+              if (task) {
+                setIncidentReportTask(task);
+                setIsIncidentReportOpen(true);
+              }
+              // カードのonDragEndで draggedTaskId / isCardDragActive はクリアされる
+            }}
+            className={`p-1.5 sm:p-2 rounded flex-shrink-0 transition ${
+              isMailboxDragOver
+                ? 'text-amber-700 bg-amber-100 ring-2 ring-amber-500 ring-offset-1 scale-110'
+                : isCardDragActive
+                  ? 'text-amber-600 bg-amber-50 ring-2 ring-amber-300 animate-pulse'
+                  : 'text-gray-500 hover:text-gray-700'
+            }`}
+            title={isCardDragActive ? 'カードをドロップして不具合通知' : '通知を送る'}
+          >
             <Mailbox className="w-5 h-5" />
           </button>
           <div className="relative flex-shrink-0" ref={notificationPanelRef}>
@@ -3921,13 +4122,52 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                     <div className="p-6 text-center text-sm text-gray-500">通知はありません</div>
                   ) : (
                     <ul className="divide-y divide-gray-100">
-                      {(notifications || []).map((n) => (
-                        <li key={n.id} className={`px-4 py-3 text-sm ${n.read ? 'bg-gray-50/50 text-gray-600' : 'bg-white'}`}>
-                          <div className="font-medium text-gray-800">{n.fromUser || '（不明）'}</div>
-                          <div className="mt-0.5 text-gray-700 whitespace-pre-wrap">{n.message || ''}</div>
-                          <div className="mt-1 text-xs text-gray-400">{n.createdAt ? new Date(n.createdAt).toLocaleString('ja-JP') : ''}</div>
-                        </li>
-                      ))}
+                      {(notifications || []).map((n) => {
+                        const isIncident = n.kind === 'incident_report' && n.cardSnapshot;
+                        if (!isIncident) {
+                          return (
+                            <li key={n.id} className={`px-4 py-3 text-sm ${n.read ? 'bg-gray-50/50 text-gray-600' : 'bg-white'}`}>
+                              <div className="font-medium text-gray-800">{n.fromUser || '（不明）'}</div>
+                              <div className="mt-0.5 text-gray-700 whitespace-pre-wrap">{n.message || ''}</div>
+                              <div className="mt-1 text-xs text-gray-400">{n.createdAt ? new Date(n.createdAt).toLocaleString('ja-JP') : ''}</div>
+                            </li>
+                          );
+                        }
+                        const snap = n.cardSnapshot || {};
+                        const carLine = `${snap.maker || ''} ${snap.car || ''}`.trim();
+                        return (
+                          <li key={n.id} className={`px-4 py-3 text-sm ${n.read ? 'bg-gray-50/50 text-gray-600' : 'bg-white border-l-2 border-amber-500'}`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">不具合報告</span>
+                              <span className="font-medium text-gray-800 text-sm">{n.fromUser || '（不明）'}</span>
+                            </div>
+                            <div className="rounded bg-gray-50 border border-gray-200 px-2 py-1.5 text-xs space-y-0.5">
+                              <div><span className="text-gray-500">お客様: </span>{snap.assignee || '（未設定）'}</div>
+                              <div><span className="text-gray-500">車両: </span>{carLine || '（未設定）'} {snap.number || ''}</div>
+                              <div><span className="text-gray-500">現ステータス: </span>{snap.statusLabel || snap.status || '（不明）'}</div>
+                              {snap.receptionStaff && (
+                                <div><span className="text-gray-500">受付: </span>{snap.receptionStaff}</div>
+                              )}
+                            </div>
+                            <div className="mt-1.5 text-gray-700 whitespace-pre-wrap text-sm">{n.message || ''}</div>
+                            {Array.isArray(snap.recentStatusHistory) && snap.recentStatusHistory.length > 0 && (
+                              <details className="mt-1.5 text-xs text-gray-600">
+                                <summary className="cursor-pointer text-gray-500 hover:text-gray-700">直近のステータス履歴（{snap.recentStatusHistory.length}件）</summary>
+                                <ul className="mt-1 space-y-0.5 pl-3">
+                                  {snap.recentStatusHistory.map((h, i) => (
+                                    <li key={i} className="text-[11px]">
+                                      <span className="text-gray-700">{h.statusLabel || h.status || '?'}</span>
+                                      {h.byUser && <span className="text-gray-400"> / {h.byUser}</span>}
+                                      {h.exitedAt && <span className="text-gray-400"> ({new Date(h.exitedAt).toLocaleString('ja-JP')})</span>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                            <div className="mt-1 text-xs text-gray-400">{n.createdAt ? new Date(n.createdAt).toLocaleString('ja-JP') : ''}</div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -4499,6 +4739,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           currentUserEmail={currentUserEmail}
           allowedEmails={getAllowedEmails() || []}
           pastLoginUsers={pastLoginUsers}
+        />
+      )}
+      {isIncidentReportOpen && incidentReportTask && (
+        <IncidentReportModal
+          task={incidentReportTask}
+          onClose={() => { setIsIncidentReportOpen(false); setIncidentReportTask(null); }}
+          currentUser={currentUser}
+          currentUserEmail={currentUserEmail}
+          boardColumnsConfig={boardColumnsConfig}
+          useIndonesian={useIndonesian}
         />
       )}
 
@@ -6006,6 +6256,13 @@ function getAllowedEmails() {
   const raw = import.meta.env.VITE_ALLOWED_EMAILS;
   if (!raw || typeof raw !== 'string') return null;
   return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
+
+// 不具合通知（カード→目安箱DnD）の送信先。env で上書き可。デフォルトはオーナー固定
+function getIncidentReportTo() {
+  const raw = import.meta.env.VITE_INCIDENT_REPORT_TO;
+  const fallback = 'izumi.coinzoom@gmail.com';
+  return ((raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : fallback).toLowerCase();
 }
 
 export default function App() {
