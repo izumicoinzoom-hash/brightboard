@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
-  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox, History
+  Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox, History,
+  CheckCircle2
 } from 'lucide-react';
 import {
   getFirebaseAuth,
@@ -2272,7 +2273,7 @@ function SendNotificationModal({ onClose, currentUser = '', currentUserEmail = '
 
 // --- 不具合通知モーダル（カード→目安箱DnDで起動） ---
 // 既存の手動 SendNotificationModal とは独立。送信先はオーナー固定。
-function IncidentReportModal({ task, onClose, currentUser = '', currentUserEmail = '', boardColumnsConfig = {}, useIndonesian = false }) {
+function IncidentReportModal({ task, onClose, onSent, currentUser = '', currentUserEmail = '', boardColumnsConfig = {}, useIndonesian = false }) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState(''); // 'success' | 'error' | ''
@@ -2370,7 +2371,13 @@ function IncidentReportModal({ task, onClose, currentUser = '', currentUserEmail
       }
       setStatus('success');
       setMessage('');
-      setTimeout(() => onClose(), 1200);
+      // 親コンポーネントへ通知 → トースト表示 → モーダル即閉じ
+      if (typeof onSent === 'function') {
+        const carLine = `${task.maker || ''} ${task.car || ''}`.trim();
+        const numTail = (task.number || '').toString().slice(-4);
+        onSent({ label: `${task.assignee || '（顧客名なし）'} / ${carLine}${numTail ? ` ${numTail}` : ''}` });
+      }
+      setTimeout(() => onClose(), 400);
     } catch (err) {
       setStatus('error');
       const msg = (err && err.message) ? String(err.message) : '';
@@ -2685,6 +2692,12 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const [incidentReportTask, setIncidentReportTask] = useState(null);
   const [isCardDragActive, setIsCardDragActive] = useState(false);
   const [isMailboxDragOver, setIsMailboxDragOver] = useState(false);
+  const [incidentToast, setIncidentToast] = useState(null); // { label } | null
+  useEffect(() => {
+    if (!incidentToast) return;
+    const t = setTimeout(() => setIncidentToast(null), 1800);
+    return () => clearTimeout(t);
+  }, [incidentToast]);
   const [currentBoardId, setCurrentBoardId] = useState('main');
   const [tasks, setTasks] = useState(() => {
     try {
@@ -4762,11 +4775,20 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         <IncidentReportModal
           task={incidentReportTask}
           onClose={() => { setIsIncidentReportOpen(false); setIncidentReportTask(null); }}
+          onSent={(info) => setIncidentToast(info)}
           currentUser={currentUser}
           currentUserEmail={currentUserEmail}
           boardColumnsConfig={boardColumnsConfig}
           useIndonesian={useIndonesian}
         />
+      )}
+      {incidentToast && (
+        <div className="fixed bottom-6 right-6 z-[60] pointer-events-none">
+          <div className="bg-green-600 text-white px-5 py-3 rounded-lg shadow-2xl flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm font-medium">不具合通知を送信しました — {incidentToast.label}</span>
+          </div>
+        </div>
       )}
 
       {isChangelogOpen && (
