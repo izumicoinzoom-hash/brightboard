@@ -2,8 +2,11 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
   Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox, History,
+  Camera as CameraIcon,
   CheckCircle2
 } from 'lucide-react';
+import CameraCapture from './CameraCapture';
+import { seedDemoCards, clearDemoCards } from './devSeedData';
 import {
   getFirebaseAuth,
   getFirestoreDb,
@@ -4742,6 +4745,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                     useIndonesian={useIndonesian}
                     viewOnly={isViewOnly}
                     usedBinderNumbers={new Set(tasks.filter(t => t.id !== selectedTask?.id && t.binderNumber).map(t => t.binderNumber))}
+                    currentUser={currentUser}
+                    currentUserEmail={currentUserEmail}
                   />
                 </div>
               )}
@@ -5724,11 +5729,14 @@ function Accordion({ title, children, defaultOpen = true }) {
 
 const MASTER_PASSCODE = '0514';
 
-function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false, usedBinderNumbers = new Set() }) {
+function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false, usedBinderNumbers = new Set(), currentUser = '', currentUserEmail = '' }) {
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  // カメラ撮影機能用: ログイン状態の判定（現場端末/デモユーザー等の擬似ログインは未認証扱い）
+  const isCameraAuthed = !!(currentUser && currentUserEmail);
   if (!task) return null;
   const effectiveOnUpdate = viewOnly ? () => {} : onUpdate;
   const issueKey = `#${task.id.replace(/\D/g, '') || Math.floor(Math.random()*1000) + 2000}`;
@@ -6118,6 +6126,35 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
             />
           </Accordion>
 
+          <Accordion title="撮影（鈑金フェーズ別）" defaultOpen={true}>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                disabled={viewOnly || !isCameraAuthed}
+                title={!isCameraAuthed ? 'ログインが必要です' : undefined}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm"
+              >
+                <CameraIcon className="w-5 h-5" />
+                撮影する（IN/B/P/OUT）
+              </button>
+              <p className="text-xs text-gray-500">
+                フェーズタグ別にフォルダ自動振り分け。撮影後 PC側で「全画像ZIP」DL予定（Phase 2）。
+              </p>
+              {!isCameraAuthed && !viewOnly && (
+                <p className="text-xs text-amber-600">
+                  ログインが必要です（Google ログイン後に撮影可能）。
+                  <a
+                    href="?forceLogin=1"
+                    className="ml-1 underline text-blue-600 hover:text-blue-800"
+                  >
+                    ログインする
+                  </a>
+                </p>
+              )}
+            </div>
+          </Accordion>
+
           <Accordion title="添付ファイル" defaultOpen={true}>
             <div className="space-y-3">
               {attachmentsList.length > 0 && (
@@ -6284,6 +6321,22 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
         <InvoiceModal
           task={task}
           onClose={() => setIsInvoiceModalOpen(false)}
+        />
+      )}
+      {isCameraOpen && isCameraAuthed && (
+        <CameraCapture
+          open={isCameraOpen}
+          task={task}
+          currentUser={{ displayName: currentUser, email: currentUserEmail }}
+          onClose={() => setIsCameraOpen(false)}
+          onPhotoSaved={(meta) => {
+            // Phase 1 ではトーストのみ。Firestore は photoStorage.js が直接書く
+            console.log('photo saved', meta);
+          }}
+          onError={(err) => {
+            console.error('camera upload error', err);
+            alert(`写真の保存に失敗しました: ${err && err.message ? err.message : err}`);
+          }}
         />
       )}
     </div>
@@ -6510,6 +6563,88 @@ export default function App() {
           <KanbanApp currentUser={currentUser} currentUserEmail={currentUserEmail} onLogout={handleLogout} nfcTaskId={nfcTaskId} />
         )}
       </div>
+      {import.meta.env.DEV && (
+        <DevSeedPanel
+          currentUser={currentUser}
+          currentUserEmail={currentUserEmail}
+          onLogout={handleLogout}
+        />
+      )}
     </>
+  );
+}
+
+function DevSeedPanel({ currentUser, currentUserEmail, onLogout }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const handleSeed = async () => {
+    if (!window.confirm('デモカード8枚を boards/main/tasks に追加します。本番Firestoreに書き込まれます。続行しますか？')) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const { inserted } = await seedDemoCards();
+      setMsg(`✓ ${inserted}枚 追加`);
+    } catch (e) {
+      setMsg(`✗ ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const handleClear = async () => {
+    if (!window.confirm('t-demo-* の全カードを削除します（写真サブコレクションは残ります）。続行しますか？')) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const { deleted } = await clearDemoCards();
+      setMsg(`✓ ${deleted}枚 削除`);
+    } catch (e) {
+      setMsg(`✗ ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const handleSignout = async () => {
+    if (typeof onLogout === 'function') await onLogout();
+    // 強制ログイン画面に遷移
+    window.location.href = '/?forceLogin=1';
+  };
+  const isAuthed = !!(currentUser && currentUserEmail);
+  return (
+    <div className="fixed bottom-4 right-4 z-[200] bg-white border border-gray-300 rounded-lg shadow-lg p-3 text-xs space-y-2 max-w-[260px]">
+      <div className="font-semibold text-gray-700">🌱 DEV: デモカード</div>
+      <div className="text-[11px] leading-tight space-y-0.5 border-t border-gray-200 pt-2">
+        <div className="text-gray-500">ログイン:</div>
+        <div className={isAuthed ? 'text-emerald-700 font-mono break-all' : 'text-amber-600'}>
+          {isAuthed ? currentUserEmail : `未認証 (${currentUser || 'なし'})`}
+        </div>
+        <div className="text-gray-500 pt-0.5">user: {currentUser || '(empty)'}</div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleSeed}
+          className="flex-1 px-2 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-medium"
+        >
+          追加(8)
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleClear}
+          className="flex-1 px-2 py-1.5 rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium"
+        >
+          削除
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={handleSignout}
+        className="w-full px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 text-[11px]"
+      >
+        🔄 サインアウト → 再ログイン
+      </button>
+      {msg && <div className="text-xs text-gray-600 break-all">{msg}</div>}
+    </div>
   );
 }
