@@ -1,0 +1,39 @@
+# BrightBoard 日次バックアップ
+# 毎日 14:30 UTC (= 23:30 JST) に Firestore boards/main/tasks を取得し、
+# Firebase Storage gs://brightboard-4595a.firebasestorage.app/backups/YYYY/MM/ に保存する。
+#
+# 必要な GitHub Secret:
+#   FIREBASE_SERVICE_ACCOUNT_JSON  サービスアカウント JSON 全文
+#     必要権限: roles/datastore.viewer + roles/storage.objectAdmin (上記バケットに対し)
+#
+# 手動実行: Actions タブから "Run workflow" でいつでも取得可
+
+name: Daily Firestore Backup
+
+on:
+  schedule:
+    - cron: '30 14 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: backup-firestore
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run backup script
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: npm run backup

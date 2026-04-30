@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "guard": "node scripts/check-forbidden-patterns.mjs",
+    "backup": "node scripts/backup-tasks.mjs",
     "build": "node scripts/check-forbidden-patterns.mjs && vite build",
     "build:demo": "node scripts/check-forbidden-patterns.mjs && vite build --mode demo && node -e \"require('fs').copyFileSync('public/.htaccess.demo','dist/.htaccess')\"",
     "preview": "vite preview"
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "firebase-admin": "^13.8.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "vite": "^5.4.10"
