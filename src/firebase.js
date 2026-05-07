@@ -137,14 +137,87 @@ export function subscribeCollection(path, onChange) {
   );
 }
 
-export async function upsertDocument(path, id, data) {
+// --- 多層防御: NFCモード中の書き込み封印 + 一括移動トリップワイヤ ---
+// 設計意図:
+//   Layer A: window.__bbWasNfcUrl はページ初期ロード時に立てるスティッキーフラグ。
+//            isNfcStandalone が一瞬転倒（hash 剥がれ等）してもフラグは戻らないので、
+//            その隙に走る KanbanApp 由来の書き込みを物理的にブロックできる。
+//            NFC ページ自身の正規書き込みは { allowDuringNfc: true } で opt-in。
+//   Layer B: 1tick (1秒) で 3 件以上の書き込みは「一括事故」とみなして強制停止。
+//            redistributeUnscheduledByInDate 等の正規一括処理は { allowBulk: true } で opt-in。
+const WRITE_HISTORY_WINDOW_MS = 1000;
+const WRITE_BULK_THRESHOLD = 3;
+const writeHistory = [];
+let bulkAlertSent = false;
+
+function notifyBbSafetyAlert(reason, detail) {
+  // Firestore には書かない（Layer A 発動中は notifications も封印される / 無限ループ回避）
+  if (typeof console !== 'undefined') {
+    console.error('[BB-SAFETY]', reason, detail);
+  }
+  try {
+    const botUrl = import.meta.env.VITE_SECRETARY_BOT_URL;
+    const botSecret = import.meta.env.VITE_SECRETARY_BOT_INCIDENT_SECRET;
+    if (!botUrl || !botSecret || typeof fetch === 'undefined') return;
+    fetch(`${botUrl.replace(/\/$/, '')}/incident/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Incident-Secret': botSecret },
+      body: JSON.stringify({
+        notificationId: `bb-safety-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        fromUser: 'BB-SAFETY-GUARD',
+        fromEmail: '',
+        message: `[BB-SAFETY] ${reason}`,
+        cardSnapshot: { detail, url: typeof window !== 'undefined' ? window.location.href : '' },
+        createdAt: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  } catch (_) {
+    // noop: 通知失敗してもガード自体は機能させる
+  }
+}
+
+function checkBulkTripwire(path, id, options) {
+  if (options && options.allowBulk) return true;
+  const now = Date.now();
+  while (writeHistory.length > 0 && now - writeHistory[0].at > WRITE_HISTORY_WINDOW_MS) {
+    writeHistory.shift();
+  }
+  writeHistory.push({ at: now, path, id });
+  if (writeHistory.length >= WRITE_BULK_THRESHOLD) {
+    if (!bulkAlertSent) {
+      bulkAlertSent = true;
+      setTimeout(() => { bulkAlertSent = false; }, 5000);
+      notifyBbSafetyAlert('bulk_write_blocked', {
+        windowMs: WRITE_HISTORY_WINDOW_MS,
+        threshold: WRITE_BULK_THRESHOLD,
+        recent: writeHistory.slice(),
+      });
+    }
+    return false;
+  }
+  return true;
+}
+
+function checkNfcGuard(path, id, options) {
+  if (typeof window === 'undefined') return true;
+  if (!window.__bbWasNfcUrl) return true;
+  if (options && options.allowDuringNfc) return true;
+  notifyBbSafetyAlert('write_blocked_during_nfc', { path, id });
+  return false;
+}
+
+export async function upsertDocument(path, id, data, options) {
+  if (!checkNfcGuard(path, id, options)) return;
+  if (!checkBulkTripwire(path, id, options)) return;
   const database = getFirestoreDb();
   if (!database) return;
   const ref = doc(database, path, id);
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
 }
 
-export async function deleteDocument(path, id) {
+export async function deleteDocument(path, id, options) {
+  if (!checkNfcGuard(path, id, options)) return;
+  if (!checkBulkTripwire(path, id, options)) return;
   const database = getFirestoreDb();
   if (!database) return;
   const ref = doc(database, path, id);

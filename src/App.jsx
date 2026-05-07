@@ -2547,7 +2547,7 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
       const updated = transitionTaskStatusWithOperator(task, primaryStatus, {}, currentUser || null);
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       if (isFirebaseConfigured()) {
-        await upsertDocument('boards/main/tasks', updated.id, updated);
+        await upsertDocument('boards/main/tasks', updated.id, updated, { allowDuringNfc: true });
       }
       setSuccess('列を移動しました。');
       setTimeout(() => setSuccess(''), 3000);
@@ -2842,6 +2842,10 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       return [];
     }
   });
+  // Firestore の tasks サブスクが少なくとも1回返ったかのフラグ。
+  // この値が false の間は KanbanApp 側の補完ロジックを走らせない
+  // （localStorage キャッシュが空の状態で reservations から大量の "unscheduled" カードを生成する事故の防止）。
+  const [tasksLoaded, setTasksLoaded] = useState(false);
   const [reservations, setReservations] = useState(() => {
     try {
       if (typeof localStorage === 'undefined') return [];
@@ -2866,6 +2870,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
 
   // 予約だけ存在してタスクがないケースを補完しておく（カードが消えないようにする）
   useEffect(() => {
+    if (!tasksLoaded) return; // Firestore tasks の初回同期前は走らせない（race による大量 unscheduled 化を防止）
     if (!Array.isArray(reservations) || reservations.length === 0) return;
     setTasks((prev) => {
       const existingIds = new Set(prev.map((t) => t.id));
@@ -3242,7 +3247,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     }
     if (isFirebaseConfigured()) {
       try {
-        await Promise.all((newFleet || []).map(car => upsertDocument('fleetCars', car.id, car)));
+        await Promise.all((newFleet || []).map(car => upsertDocument('fleetCars', car.id, car, { allowBulk: true })));
         showSettingsToast('代車マスタを保存しました（他PCと共有されます）');
       } catch (e) {
         showSettingsToast('代車マスタの保存に失敗しました。通信を確認してください。');
@@ -3257,7 +3262,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     if (isFirebaseConfigured()) {
       try {
         await Promise.all(removedIds.map(id => deleteDocument('rentalCompanies', id)));
-        await Promise.all(nextList.map(c => upsertDocument('rentalCompanies', c.id, c)));
+        await Promise.all(nextList.map(c => upsertDocument('rentalCompanies', c.id, c, { allowBulk: true })));
         showSettingsToast('レンタル会社マスタを保存しました');
       } catch (e) {
         showSettingsToast('レンタル会社マスタの保存に失敗しました。通信を確認してください。');
@@ -3332,7 +3337,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     if (!justOpened || !isFirebaseConfigured()) return;
     const unread = notifications.filter((n) => !n.read);
     unread.forEach((n) => {
-      upsertDocument('notifications', n.id, { ...n, read: true }).catch(() => {});
+      upsertDocument('notifications', n.id, { ...n, read: true }, { allowBulk: true }).catch(() => {});
     });
   }, [isNotificationPanelOpen, notifications]);
   const enableWeekGrouping = currentBoardId === 'planning';
@@ -3393,6 +3398,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       }
       // 0件の場合は「何もない」というサーバー状態だが、
       // ローカルの編集中データを消してしまわないよう、明示的なクリアはしない
+      // 補完 useEffect 解除のため、空配列でも一度は loaded フラグを立てる
+      setTasksLoaded(true);
     });
     const unsubscribeReservations = subscribeCollection('boards/main/reservations', (items) => {
       if (Array.isArray(items) && items.length > 0) {
@@ -3459,7 +3466,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       });
       if (isFirebaseConfigured()) {
         reordered.forEach((t) => {
-          upsertDocument('boards/main/tasks', t.id, t).catch(() => {});
+          upsertDocument('boards/main/tasks', t.id, t, { allowBulk: true }).catch(() => {});
         });
       }
       const byId = new Map(reordered.map((t) => [t.id, t]));
@@ -3844,7 +3851,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       const dayStatus = dayNames[d.getDay()];
       if (!dayStatus) return t;
       const updated = transitionTaskStatus(t, dayStatus, { ...t, status: dayStatus });
-      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
       return updated;
     }));
     showSettingsToast(`入庫予約の${unscheduledWithInDate.length}件を曜日列へ振り分けました`);
@@ -3863,7 +3870,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       if (!restoreEntry) return t;
       const restoreStatus = restoreEntry.status;
       const updated = transitionTaskStatus(t, restoreStatus);
-      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated).catch(() => {});
+      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
       return updated;
     }));
     showSettingsToast(`他ボードから来た${unscheduledFromOtherBoard.length}件を直前の工程に戻しました`);
@@ -3924,7 +3931,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       });
       if (isFirebaseConfigured()) {
         reordered.forEach((t) => {
-          upsertDocument('boards/main/tasks', t.id, t).catch(() => {});
+          upsertDocument('boards/main/tasks', t.id, t, { allowBulk: true }).catch(() => {});
         });
       }
       const byId = new Map(reordered.map((t) => [t.id, t]));
@@ -6485,6 +6492,23 @@ function getIncidentReportTo() {
   const raw = import.meta.env.VITE_INCIDENT_REPORT_TO;
   const fallback = 'izumi.coinzoom@gmail.com';
   return ((raw && typeof raw === 'string' && raw.trim()) ? raw.trim() : fallback).toLowerCase();
+}
+
+// 多層防御 Layer A: ページ初期ロード時に NFC URL を一度判定したら
+// ページのライフタイム中ずっと真にしておく（リロードまで戻らない）。
+// hash 剥がれや search パラメータ消去が起きても KanbanApp 側の暴発から守るため。
+if (typeof window !== 'undefined' && typeof window.__bbWasNfcUrl === 'undefined') {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash || '';
+    const isNfc =
+      params.get('nfcStandalone') === '1' ||
+      !!params.get('nfcTaskId') ||
+      /^#\/(tag|cam)\//.test(hash);
+    window.__bbWasNfcUrl = isNfc;
+  } catch (_) {
+    window.__bbWasNfcUrl = false;
+  }
 }
 
 export default function App() {
