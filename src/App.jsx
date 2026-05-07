@@ -6553,7 +6553,14 @@ export default function App() {
         params.delete('fromCalendar');
       }
       const newSearch = params.toString();
-      const newUrl = (window.location.pathname || '/') + (newSearch ? `?${newSearch}` : '');
+      // 重要: NFCタグの #/tag/{binderNo} や #/cam/{binderNo} を消すと
+      // 直後の再レンダリングで isNfcStandalone が false に転倒し、
+      // KanbanApp 側の予約→unscheduled 補完ロジックが走ってカードが
+      // 「予約管理/入庫日未定」へ流される事象が発生する。hashは必ず温存する。
+      const newUrl =
+        (window.location.pathname || '/') +
+        (newSearch ? `?${newSearch}` : '') +
+        (window.location.hash || '');
       window.history.replaceState({}, '', newUrl);
     }
   }, []);
