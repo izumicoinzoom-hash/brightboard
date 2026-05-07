@@ -18,6 +18,7 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
   onSnapshot,
   setDoc,
   updateDoc,
@@ -213,6 +214,71 @@ export async function upsertDocument(path, id, data, options) {
   if (!database) return;
   const ref = doc(database, path, id);
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+// --- 代車データ破壊ガード: boards/main/tasks 専用 ---
+// 既存 loanerType / loanerCarId / statusHistory を破壊的に上書きする書き込みを弾く。
+// reservations 補完 useEffect 等の不完全な stub による事故再発を防ぐ最後の砦。
+// 緊急回避が必要な場合は { allowLoanerOverride: true } を渡す（手動キャンセル等）。
+const LOANER_TYPE_NON_NONE = ['loaner_k', 'loaner_n', 'rental', 'other_rental'];
+
+function detectLoanerInvariantViolations(prev, next) {
+  const violations = [];
+  if (!prev) return violations;
+  if (
+    LOANER_TYPE_NON_NONE.includes(prev.loanerType) &&
+    Object.prototype.hasOwnProperty.call(next, 'loanerType') &&
+    next.loanerType === 'none'
+  ) {
+    violations.push({ field: 'loanerType', from: prev.loanerType, to: next.loanerType });
+  }
+  if (
+    typeof prev.loanerCarId === 'string' && prev.loanerCarId.length > 0 &&
+    Object.prototype.hasOwnProperty.call(next, 'loanerCarId') &&
+    (next.loanerCarId === '' || next.loanerCarId === null || next.loanerCarId === undefined)
+  ) {
+    violations.push({ field: 'loanerCarId', from: prev.loanerCarId, to: next.loanerCarId });
+  }
+  const prevHist = Array.isArray(prev.statusHistory) ? prev.statusHistory : [];
+  if (Object.prototype.hasOwnProperty.call(next, 'statusHistory')) {
+    const nextHist = Array.isArray(next.statusHistory) ? next.statusHistory : [];
+    if (prevHist.length > 0 && nextHist.length < prevHist.length) {
+      violations.push({ field: 'statusHistory', from: prevHist.length, to: nextHist.length });
+    }
+  }
+  return violations;
+}
+
+export async function safeUpsertTask(id, data, options) {
+  const path = 'boards/main/tasks';
+  if (!checkNfcGuard(path, id, options)) return { ok: false, reason: 'nfc_guard' };
+  if (!checkBulkTripwire(path, id, options)) return { ok: false, reason: 'bulk_tripwire' };
+  const database = getFirestoreDb();
+  if (!database) return { ok: false, reason: 'no_db' };
+  const ref = doc(database, path, id);
+  if (!options || !options.allowLoanerOverride) {
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const prev = snap.data();
+        const violations = detectLoanerInvariantViolations(prev, data);
+        if (violations.length > 0) {
+          notifyBbSafetyAlert('loaner_invariant_blocked', {
+            id,
+            reason: options && options.reason ? options.reason : 'unknown',
+            violations,
+          });
+          return { ok: false, reason: 'loaner_invariant', violations };
+        }
+      }
+    } catch (e) {
+      if (typeof console !== 'undefined') {
+        console.warn('[safeUpsertTask] preflight read failed, falling back to upsert:', e);
+      }
+    }
+  }
+  await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  return { ok: true };
 }
 
 export async function deleteDocument(path, id, options) {

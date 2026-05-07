@@ -18,6 +18,7 @@ import {
   onAuthStateChanged,
   subscribeCollection,
   upsertDocument,
+  safeUpsertTask,
   deleteDocument
 } from './firebase';
 import { IMEInput, IMETextarea } from './IMEInput.jsx';
@@ -2904,7 +2905,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       const next = [...prev, ...additions];
       if (isFirebaseConfigured()) {
         additions.forEach((task) => {
-          upsertDocument('boards/main/tasks', task.id, task).catch(() => {});
+          safeUpsertTask(task.id, task, { reason: 'reservations-fill' }).catch(() => {});
         });
       }
       return next;
