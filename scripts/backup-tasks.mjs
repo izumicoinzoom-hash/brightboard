@@ -58,7 +58,9 @@ function jstToday() {
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
-  return { yyyy, mm, dd, dateStr: `${yyyy}-${mm}-${dd}` };
+  const HH = String(d.getUTCHours()).padStart(2, '0');
+  const MM = String(d.getUTCMinutes()).padStart(2, '0');
+  return { yyyy, mm, dd, dateStr: `${yyyy}-${mm}-${dd}`, timeStr: `${HH}${MM}` };
 }
 
 async function main() {
@@ -77,12 +79,9 @@ async function main() {
     tasks,
   };
 
-  const { yyyy, mm, dateStr } = jstToday();
-  const objectPath = `backups/${yyyy}/${mm}/brightboard-backup-${dateStr}.json`;
-  const file = bucket.file(objectPath);
-
-  console.log(`[backup] uploading to gs://${BUCKET}/${objectPath}`);
-  await file.save(JSON.stringify(payload, null, 2), {
+  const { yyyy, mm, dateStr, timeStr } = jstToday();
+  const body = JSON.stringify(payload, null, 2);
+  const saveOpts = {
     contentType: 'application/json; charset=utf-8',
     metadata: {
       cacheControl: 'private, max-age=0, no-transform',
@@ -92,8 +91,19 @@ async function main() {
       },
     },
     resumable: false,
-  });
-  console.log(`[done] backup saved: gs://${BUCKET}/${objectPath} (${tasks.length} tasks)`);
+  };
+
+  // 1) タイムスタンプ付きスナップショット（同日複数バックアップでも上書きされない監査痕）
+  const stampedPath = `backups/${yyyy}/${mm}/brightboard-backup-${dateStr}-${timeStr}.json`;
+  console.log(`[backup] uploading to gs://${BUCKET}/${stampedPath}`);
+  await bucket.file(stampedPath).save(body, saveOpts);
+
+  // 2) 日別エイリアス（restore-tasks.mjs --date=YYYY-MM-DD 互換、その日の最新を指す）
+  const aliasPath = `backups/${yyyy}/${mm}/brightboard-backup-${dateStr}.json`;
+  console.log(`[backup] updating alias gs://${BUCKET}/${aliasPath}`);
+  await bucket.file(aliasPath).save(body, saveOpts);
+
+  console.log(`[done] backup saved: ${tasks.length} tasks → ${stampedPath} + alias ${aliasPath}`);
 }
 
 main().catch((e) => {

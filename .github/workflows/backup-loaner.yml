@@ -1,0 +1,37 @@
+# BrightBoard 代車専用 30分毎スナップショット
+# 代車関連タスクサブセット + boards/main/reservations + fleetCars + rentalCompanies を
+# Firebase Storage gs://brightboard-4595a.firebasestorage.app/backups/loaner/YYYY/MM/DD/HHmm.json に保存する。
+#
+# 必要な GitHub Secret:
+#   FIREBASE_SERVICE_ACCOUNT_JSON  サービスアカウント JSON 全文（backup-firestore.yml と共有）
+
+name: Loaner Snapshot (every 30min)
+
+on:
+  schedule:
+    # GitHub Actions UTC。30分毎。JST分換算は同じ。
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: backup-loaner
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run loaner snapshot script
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: npm run backup-loaner
