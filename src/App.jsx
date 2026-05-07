@@ -6534,9 +6534,16 @@ export default function App() {
     }
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash || '';
+      const isBinderHashRoute = /^#\/(tag|cam)\//.test(hash);
       let nfcId = params.get('nfcTaskId');
-      // スマホでログインリダイレクト後に戻るとURLからnfcTaskIdが消えるため、sessionStorageから復元
-      if (!nfcId) {
+      // バインダーハッシュ（#/tag/XX, #/cam/XX）は nfcTaskId を持たないのが正。
+      // 前回のカードNFCが sessionStorage に残ったまま未割当バインダーを読むと、
+      // 復元値で nfcTaskId が埋まり「未割当」UIが出ない事故になるため明示的にクリアする。
+      if (isBinderHashRoute) {
+        try { sessionStorage.removeItem(NFC_PENDING_KEY); } catch (_) {}
+      } else if (!nfcId) {
+        // スマホでログインリダイレクト後に戻るとURLからnfcTaskIdが消えるため、sessionStorageから復元
         try {
           nfcId = sessionStorage.getItem(NFC_PENDING_KEY);
           if (nfcId) sessionStorage.removeItem(NFC_PENDING_KEY);
