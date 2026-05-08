@@ -3054,13 +3054,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     setReservations((prev) => prev.filter((r) => r.taskId !== taskId));
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     if (isFirebaseConfigured()) {
+      // マスター削除はユーザー明示操作のため NFC ガードと一括ガード両方を opt-in で通す
       upsertDocument('boards/main/tasks', taskId, {
         ...target, deleted: true, deletedAt, deletedBy,
-      }).catch(() => {});
+      }, { allowDuringNfc: true, allowBulk: true }).catch(() => {});
       related.forEach((r) => {
         upsertDocument('boards/main/reservations', r.id, {
           ...r, deleted: true, deletedAt, deletedBy,
-        }, { allowBulk: true }).catch(() => {});
+        }, { allowDuringNfc: true, allowBulk: true }).catch(() => {});
       });
     }
     setSelectedTaskId(null);
@@ -3077,9 +3078,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         return [...prev, ...relRes.filter((r) => !exists.has(r.id))];
       });
       if (isFirebaseConfigured()) {
-        upsertDocument('boards/main/tasks', task.id, { ...task, deleted: false }).catch(() => {});
+        upsertDocument('boards/main/tasks', task.id, { ...task, deleted: false }, { allowDuringNfc: true, allowBulk: true }).catch(() => {});
         relRes.forEach((r) => {
-          upsertDocument('boards/main/reservations', r.id, { ...r, deleted: false }, { allowBulk: true }).catch(() => {});
+          upsertDocument('boards/main/reservations', r.id, { ...r, deleted: false }, { allowDuringNfc: true, allowBulk: true }).catch(() => {});
         });
       }
       return null;

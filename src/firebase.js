@@ -127,7 +127,9 @@ export function subscribeCollection(path, onChange) {
           id: docSnap.id,
           ...docSnap.data()
         }))
-        // ソフト削除フラグが立っているドキュメントは UI から除外
+        // ソフト削除フラグが立っているドキュメントは UI から除外。
+        // 全 collection 共通フィルタなので、別用途で deleted フィールドを
+        // 使う場合は別名（archived 等）を採用すること。
         .filter(item => item.deleted !== true);
       onChange(items);
     },
