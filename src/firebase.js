@@ -122,10 +122,13 @@ export function subscribeCollection(path, onChange) {
   return onSnapshot(
     colRef,
     (snapshot) => {
-      const items = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      }));
+      const items = snapshot.docs
+        .map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data()
+        }))
+        // ソフト削除フラグが立っているドキュメントは UI から除外
+        .filter(item => item.deleted !== true);
       onChange(items);
     },
     (error) => {

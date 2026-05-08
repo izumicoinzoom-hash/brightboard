@@ -3047,27 +3047,57 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   const handleMasterDeleteTask = (taskId) => {
     const target = tasks.find((t) => t.id === taskId);
     if (!target) return;
-    // 紐づく代車予約を削除
-    setReservations((prev) => {
-      const related = prev.filter((r) => r.taskId === taskId);
-      if (isFirebaseConfigured() && related.length > 0) {
-        related.forEach((r) => {
-          deleteDocument('boards/main/reservations', r.id).catch(() => {});
-        });
-      }
-      return prev.filter((r) => r.taskId !== taskId);
-    });
-    // タスク本体を削除
+    const related = reservations.filter((r) => r.taskId === taskId);
+    const deletedAt = new Date().toISOString();
+    const deletedBy = currentUser || '不明';
+    // ソフト削除: deleted=true を立てて subscribeCollection 側で除外
+    setReservations((prev) => prev.filter((r) => r.taskId !== taskId));
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     if (isFirebaseConfigured()) {
-      deleteDocument('boards/main/tasks', taskId).catch(() => {});
+      upsertDocument('boards/main/tasks', taskId, {
+        ...target, deleted: true, deletedAt, deletedBy,
+      }).catch(() => {});
+      related.forEach((r) => {
+        upsertDocument('boards/main/reservations', r.id, {
+          ...r, deleted: true, deletedAt, deletedBy,
+        }, { allowBulk: true }).catch(() => {});
+      });
     }
     setSelectedTaskId(null);
+    // Undo トースト用に控えを保持（30秒間「元に戻す」可能）
+    setPendingUndoDelete({ task: target, reservations: related, expiresAt: Date.now() + 30000 });
+  };
+  const handleUndoDelete = () => {
+    setPendingUndoDelete((cur) => {
+      if (!cur) return null;
+      const { task, reservations: relRes } = cur;
+      setTasks((prev) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
+      setReservations((prev) => {
+        const exists = new Set(prev.map((r) => r.id));
+        return [...prev, ...relRes.filter((r) => !exists.has(r.id))];
+      });
+      if (isFirebaseConfigured()) {
+        upsertDocument('boards/main/tasks', task.id, { ...task, deleted: false }).catch(() => {});
+        relRes.forEach((r) => {
+          upsertDocument('boards/main/reservations', r.id, { ...r, deleted: false }, { allowBulk: true }).catch(() => {});
+        });
+      }
+      return null;
+    });
   };
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarLinkModalOpen, setIsCalendarLinkModalOpen] = useState(false);
   const [calendarToast, setCalendarToast] = useState('');
   const [settingsSaveToast, setSettingsSaveToast] = useState('');
+  // ソフト削除直後の Undo トースト（30秒間「元に戻す」可能）
+  const [pendingUndoDelete, setPendingUndoDelete] = useState(null);
+  useEffect(() => {
+    if (!pendingUndoDelete) return;
+    const remain = pendingUndoDelete.expiresAt - Date.now();
+    if (remain <= 0) { setPendingUndoDelete(null); return; }
+    const t = setTimeout(() => setPendingUndoDelete(null), remain);
+    return () => clearTimeout(t);
+  }, [pendingUndoDelete]);
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   // 1分ごとに再レンダリングして滞在時間表示を更新
   const [, setElapsedTick] = useState(0);
@@ -4183,6 +4213,16 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       {settingsSaveToast && (
         <div className="absolute left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium shadow-lg animate-fade-in" style={{ top: 'calc(3.5rem + env(safe-area-inset-top))' }}>
           {settingsSaveToast}
+        </div>
+      )}
+      {pendingUndoDelete && (
+        <div className="fixed left-1/2 -translate-x-1/2 z-[70] px-4 py-3 rounded-lg bg-gray-900 text-white text-sm font-medium shadow-lg flex items-center gap-3" style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+          <span>カードを削除しました（30秒以内なら元に戻せます）</span>
+          <button
+            type="button"
+            onClick={handleUndoDelete}
+            className="px-3 py-1 rounded bg-amber-400 hover:bg-amber-300 text-gray-900 text-sm font-bold"
+          >元に戻す</button>
         </div>
       )}
       <header className="bg-white border-b border-gray-200 flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shadow-sm z-30 min-h-[3rem]" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
@@ -6441,7 +6481,7 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
                         window.alert('パスコードが違います。');
                         return;
                       }
-                      if (window.confirm('このカードを完全に削除します。紐づく代車予約も削除されます。よろしいですか？')) {
+                      if (window.confirm('このカードを削除します。紐づく代車予約も非表示になります。直後30秒以内なら「元に戻す」可能です。よろしいですか？')) {
                         onMasterDelete(task.id);
                       }
                     }}
