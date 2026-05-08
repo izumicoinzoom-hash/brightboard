@@ -341,6 +341,16 @@ const CARD_COLOR_OPTIONS = ['bg-white', 'bg-cyan-300', 'bg-yellow-400', 'bg-gray
 // --- 更新履歴 ---
 const CHANGELOG = [
   {
+    date: '2026-05-08',
+    version: 'v1.6.0',
+    items: [
+      'カード削除をソフト削除化。誤削除しても直後30秒以内なら画面下部「元に戻す」で復活可能',
+      'マスター削除時の確認ダイアログ文言を「Undo可」明記版に更新',
+      '車種マスタに19モデル追加（ホンダ:ヴェゼル / トヨタ:C-HR・ヴォクシー / スズキ:ハスラー / スバル:XV / メルセデス:CLA・ML / レクサス:LBX / BMW:iX1・Z4 / アウディ:Q4 e-tron系 / VW:ID.4・ID.5・トゥアレグ / ボルボ:C40・EX30・EX90 / アバルト:500e）',
+      '（裏側）Firestore Point-in-Time Recovery を7日間有効化。万一の事故時に過去任意時刻からの復旧が可能に',
+    ]
+  },
+  {
     date: '2026-04-17',
     version: 'v1.5.0',
     items: [
