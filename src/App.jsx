@@ -3669,7 +3669,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
           id: resId,
           carId: newTask.loanerCarId,
           taskId: newTask.id,
-          taskName: `${newTask.assignee || '未設定'} ${newTask.car || '新規車両'}`.trim(),
+          taskName: [newTask.assignee, newTask.car].filter(Boolean).join(' ').trim() || '未設定',
           start: newTask.inDate,
           end: newTask.outDate || newTask.inDate,
           color: newTask.color || 'bg-blue-400'
@@ -4052,7 +4052,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         id: resId,
         carId: newTask.loanerCarId,
         taskId: newId,
-        taskName: `${newTask.assignee || '未設定'} ${newTask.car || '新規車両'}`,
+        taskName: [newTask.assignee, newTask.car].filter(Boolean).join(' ').trim() || '未設定',
         start: newTask.inDate,
         end: newTask.outDate || newTask.inDate,
         color: newTask.color || 'bg-blue-400'
@@ -4144,7 +4144,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
         id: baseId,
         carId: taskToSave.loanerCarId,
         taskId: taskToSave.id,
-        taskName: `${taskToSave.assignee || '未設定'} ${taskToSave.car || '新規車両'}`.trim(),
+        taskName: [taskToSave.assignee, taskToSave.car].filter(Boolean).join(' ').trim() || '未設定',
         start: taskToSave.inDate,
         end: taskToSave.outDate || taskToSave.inDate,
         color: taskToSave.color || 'bg-blue-400'
@@ -5370,9 +5370,6 @@ function CreateTaskModal({ variant = 'center', fleetCars = FLEET_CARS, rentalCom
     e.preventDefault();
     onSubmit({
       ...formData,
-      car: formData.car || '新規車両',
-      number: formData.number || '000',
-      assignee: formData.assignee || '未設定',
       attachments: attachments
     });
   };
