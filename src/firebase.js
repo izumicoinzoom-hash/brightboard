@@ -23,6 +23,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  addDoc,
   serverTimestamp
 } from 'firebase/firestore';
 
@@ -212,13 +213,83 @@ function checkNfcGuard(path, id, options) {
   return false;
 }
 
+// --- 監査ログ: tasks / reservations の全 write を append-only で記録 ---
+// 目的:
+//   どの端末・誰が・いつ・どのフィールドを変更したかを後追いできるようにする。
+//   写真・カラーナンバー・車番など、statusHistory に乗らないフィールドの消失原因を
+//   特定するための一次情報源。boards/main/auditLogs/{autoId} に永続化。
+// 設計:
+//   - actor は App.jsx から setCurrentActor() で渡される currentUser/Email
+//   - deviceLabel は localStorage('bb_device_label') を任意で（端末識別用、未設定可）
+//   - before/after は丸ごと保存（Firestore は安いので diff 計算は後段で行う）
+//   - 失敗してもメイン書き込みは止めない（fire-and-forget）
+const AUDITED_PATHS = new Set(['boards/main/tasks', 'boards/main/reservations']);
+const AUDIT_PATH = 'boards/main/auditLogs';
+const currentActor = { name: null, email: null };
+
+export function setCurrentActor(name, email) {
+  currentActor.name = name || null;
+  currentActor.email = email || null;
+}
+
+function readDeviceLabel() {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage.getItem('bb_device_label') || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function fetchBeforeSnapshot(path, id) {
+  if (!AUDITED_PATHS.has(path)) return null;
+  try {
+    const database = getFirestoreDb();
+    if (!database) return null;
+    const ref = doc(database, path, id);
+    const snap = await getDoc(ref);
+    return snap.exists() ? snap.data() : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writeAuditLog(path, id, action, before, after, options) {
+  if (!AUDITED_PATHS.has(path)) return;
+  try {
+    const database = getFirestoreDb();
+    if (!database) return;
+    const colRef = collection(database, AUDIT_PATH);
+    await addDoc(colRef, {
+      path,
+      docId: id,
+      action,
+      actor: currentActor.name,
+      actorEmail: currentActor.email,
+      deviceLabel: readDeviceLabel(),
+      ua: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      url: typeof window !== 'undefined' ? window.location.href : null,
+      reason: options && options.reason ? options.reason : null,
+      before: before || null,
+      after: after || null,
+      ts: serverTimestamp(),
+    });
+  } catch (e) {
+    if (typeof console !== 'undefined') {
+      console.warn('[auditLog] write failed:', e);
+    }
+  }
+}
+
 export async function upsertDocument(path, id, data, options) {
   if (!checkNfcGuard(path, id, options)) return;
   if (!checkBulkTripwire(path, id, options)) return;
   const database = getFirestoreDb();
   if (!database) return;
   const ref = doc(database, path, id);
+  const before = await fetchBeforeSnapshot(path, id);
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  writeAuditLog(path, id, 'upsert', before, data, options);
 }
 
 // --- 代車データ破壊ガード: boards/main/tasks 専用 ---
@@ -261,12 +332,15 @@ export async function safeUpsertTask(id, data, options) {
   const database = getFirestoreDb();
   if (!database) return { ok: false, reason: 'no_db' };
   const ref = doc(database, path, id);
+  let before = null;
+  let beforeFetched = false;
   if (!options || !options.allowLoanerOverride) {
     try {
       const snap = await getDoc(ref);
+      beforeFetched = true;
       if (snap.exists()) {
-        const prev = snap.data();
-        const violations = detectLoanerInvariantViolations(prev, data);
+        before = snap.data();
+        const violations = detectLoanerInvariantViolations(before, data);
         if (violations.length > 0) {
           notifyBbSafetyAlert('loaner_invariant_blocked', {
             id,
@@ -282,7 +356,11 @@ export async function safeUpsertTask(id, data, options) {
       }
     }
   }
+  if (!beforeFetched) {
+    before = await fetchBeforeSnapshot(path, id);
+  }
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  writeAuditLog(path, id, 'upsert', before, data, options);
   return { ok: true };
 }
 
@@ -292,7 +370,9 @@ export async function deleteDocument(path, id, options) {
   const database = getFirestoreDb();
   if (!database) return;
   const ref = doc(database, path, id);
+  const before = await fetchBeforeSnapshot(path, id);
   await deleteDoc(ref);
+  writeAuditLog(path, id, 'delete', before, null, options);
 }
 
 export { onAuthStateChanged };

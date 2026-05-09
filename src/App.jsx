@@ -19,7 +19,8 @@ import {
   subscribeCollection,
   upsertDocument,
   safeUpsertTask,
-  deleteDocument
+  deleteDocument,
+  setCurrentActor
 } from './firebase';
 import { IMEInput, IMETextarea } from './IMEInput.jsx';
 import { InvoiceModal, InvoiceSettingsPanel } from './InvoiceModal.jsx';
@@ -6698,6 +6699,12 @@ export default function App() {
       if (unsubRef.current && typeof unsubRef.current === 'function') unsubRef.current();
     };
   }, []);
+
+  // 監査ログ用 actor 同期: currentUser / currentUserEmail を firebase.js のモジュール
+  // スコープに渡し、boards/main/auditLogs の actor フィールドに自動付与する。
+  useEffect(() => {
+    setCurrentActor(currentUser, currentUserEmail);
+  }, [currentUser, currentUserEmail]);
 
   const handleSignIn = async () => {
     if (!isFirebaseConfigured()) {
