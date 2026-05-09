@@ -2880,48 +2880,9 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   });
   const [rentalCompanies, setRentalCompanies] = useState([]);
 
-  // 予約だけ存在してタスクがないケースを補完しておく（カードが消えないようにする）
-  useEffect(() => {
-    if (!tasksLoaded) return; // Firestore tasks の初回同期前は走らせない（race による大量 unscheduled 化を防止）
-    if (!Array.isArray(reservations) || reservations.length === 0) return;
-    setTasks((prev) => {
-      const existingIds = new Set(prev.map((t) => t.id));
-      const additions = [];
-      const nowIso = new Date().toISOString();
-      reservations.forEach((res) => {
-        if (!res.taskId || existingIds.has(res.taskId)) return;
-        additions.push({
-          id: res.taskId,
-          status: 'unscheduled',
-          color: 'bg-white',
-          maker: '',
-          car: '',
-          number: '',
-          colorNo: '',
-          assignee: res.taskName || '',
-          inDate: res.start || '',
-          inTime: '09:00',
-          outDate: res.end || '',
-          loanerType: 'none',
-          loanerCarId: res.carId || '',
-          dots: ['white', 'white', 'white', 'white'],
-          characters: [],
-          tasks: [],
-          statusEnteredAt: nowIso,
-          statusHistory: [],
-          attachments: [],
-        });
-      });
-      if (!additions.length) return prev;
-      const next = [...prev, ...additions];
-      if (isFirebaseConfigured()) {
-        additions.forEach((task) => {
-          safeUpsertTask(task.id, task, { reason: 'reservations-fill' }).catch(() => {});
-        });
-      }
-      return next;
-    });
-  }, [reservations]);
+  // [removed 2026-05-09] 予約補完 useEffect を撤去。
+  // 5/7・5/9 の3度の silent-wipe 事故の真因（initial snapshot race で existingIds 取りこぼし→Firestoreへ stub 上書き発射）。
+  // 「予約だけあってタスクが無い」状態は手動運用で補う方針。
 
   // 納車完了履歴: 納車ワークフロー（delivery_wait/delivery_today/delivered_*）を経たカードのみ表示
   // 他ボードで completed になっただけのカードは納車履歴に表示しない
