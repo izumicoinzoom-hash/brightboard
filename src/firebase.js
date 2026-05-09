@@ -281,6 +281,78 @@ async function writeAuditLog(path, id, action, before, after, options) {
   }
 }
 
+// --- 重要フィールド消失ガード: tasks 専用 ---
+// 既存値があるのに空文字 / null / undefined / 空配列で上書きされる書き込みを弾く。
+// 「写真がいつの間にか消えた」「車番・カラーナンバーが消えた」事故の予防が目的。
+// 緊急回避（ユーザーが意図的にクリアしたい等）には { allowFieldWipe: true } を渡す。
+const PROTECTED_TASK_FIELDS = ['number', 'colorNo', 'car'];
+
+function isMeaningfulString(v) {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function detectFieldWipeViolations(prev, next) {
+  const violations = [];
+  if (!prev) return violations;
+  for (const field of PROTECTED_TASK_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(next, field)) continue;
+    const prevHas = isMeaningfulString(prev[field]);
+    const nextEmpty =
+      next[field] === null ||
+      next[field] === undefined ||
+      (typeof next[field] === 'string' && next[field].trim().length === 0);
+    if (prevHas && nextEmpty) {
+      violations.push({ field, from: prev[field], to: next[field] });
+    }
+  }
+  // 写真（attachments）は image type 数で判定
+  if (Object.prototype.hasOwnProperty.call(next, 'attachments')) {
+    const prevImgs = Array.isArray(prev.attachments)
+      ? prev.attachments.filter((a) => a && a.type === 'image' && a.data)
+      : [];
+    const nextImgs = Array.isArray(next.attachments)
+      ? next.attachments.filter((a) => a && a.type === 'image' && a.data)
+      : [];
+    if (prevImgs.length > 0 && nextImgs.length === 0) {
+      violations.push({ field: 'attachments', from: prevImgs.length, to: 0 });
+    }
+  }
+  return violations;
+}
+
+// tasks 書き込みの中央ガード。upsertDocument / safeUpsertTask 両方から呼ぶ。
+// 戻り値: { ok: boolean, before: object|null, violations?: array }
+async function runTaskInvariantGuards(path, id, data, options, providedBefore) {
+  if (path !== 'boards/main/tasks') {
+    return { ok: true, before: providedBefore !== undefined ? providedBefore : null };
+  }
+  let before = providedBefore;
+  if (before === undefined) {
+    before = await fetchBeforeSnapshot(path, id);
+  }
+  if (!before) return { ok: true, before: null };
+  const allViolations = [];
+  if (!options || !options.allowLoanerOverride) {
+    for (const v of detectLoanerInvariantViolations(before, data)) {
+      allViolations.push({ ...v, kind: 'loaner_invariant' });
+    }
+  }
+  if (!options || !options.allowFieldWipe) {
+    for (const v of detectFieldWipeViolations(before, data)) {
+      allViolations.push({ ...v, kind: 'field_wipe' });
+    }
+  }
+  if (allViolations.length > 0) {
+    notifyBbSafetyAlert('task_write_blocked', {
+      id,
+      reason: options && options.reason ? options.reason : 'unknown',
+      violations: allViolations,
+    });
+    return { ok: false, before, violations: allViolations };
+  }
+  return { ok: true, before };
+}
+
 export async function upsertDocument(path, id, data, options) {
   if (!checkNfcGuard(path, id, options)) return;
   if (!checkBulkTripwire(path, id, options)) return;
@@ -288,6 +360,8 @@ export async function upsertDocument(path, id, data, options) {
   if (!database) return;
   const ref = doc(database, path, id);
   const before = await fetchBeforeSnapshot(path, id);
+  const guard = await runTaskInvariantGuards(path, id, data, options, before);
+  if (!guard.ok) return;
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
   writeAuditLog(path, id, 'upsert', before, data, options);
 }
@@ -332,35 +406,12 @@ export async function safeUpsertTask(id, data, options) {
   const database = getFirestoreDb();
   if (!database) return { ok: false, reason: 'no_db' };
   const ref = doc(database, path, id);
-  let before = null;
-  let beforeFetched = false;
-  if (!options || !options.allowLoanerOverride) {
-    try {
-      const snap = await getDoc(ref);
-      beforeFetched = true;
-      if (snap.exists()) {
-        before = snap.data();
-        const violations = detectLoanerInvariantViolations(before, data);
-        if (violations.length > 0) {
-          notifyBbSafetyAlert('loaner_invariant_blocked', {
-            id,
-            reason: options && options.reason ? options.reason : 'unknown',
-            violations,
-          });
-          return { ok: false, reason: 'loaner_invariant', violations };
-        }
-      }
-    } catch (e) {
-      if (typeof console !== 'undefined') {
-        console.warn('[safeUpsertTask] preflight read failed, falling back to upsert:', e);
-      }
-    }
-  }
-  if (!beforeFetched) {
-    before = await fetchBeforeSnapshot(path, id);
+  const guard = await runTaskInvariantGuards(path, id, data, options);
+  if (!guard.ok) {
+    return { ok: false, reason: 'task_invariant', violations: guard.violations };
   }
   await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
-  writeAuditLog(path, id, 'upsert', before, data, options);
+  writeAuditLog(path, id, 'upsert', guard.before, data, options);
   return { ok: true };
 }
 
