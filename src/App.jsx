@@ -4158,7 +4158,11 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     });
 
     if (isFirebaseConfigured()) {
-      upsertDocument('boards/main/tasks', taskToSave.id, taskToSave);
+      upsertDocument('boards/main/tasks', taskToSave.id, taskToSave, {
+        allowFieldWipe: true,
+        allowLoanerOverride: true,
+        reason: 'ui_task_edit',
+      });
       if (prevTask && shouldSyncToSheetOnStatusChange(prevTask.status, taskToSave.status)) {
         syncCardToSheet(taskToSave);
       }
