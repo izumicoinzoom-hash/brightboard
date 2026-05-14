@@ -192,8 +192,44 @@ function getOrCreateMonthlySheet(prefix, headers, monthKey) {
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     sheet.setFrozenRows(1);
+  } else {
+    // 既存シートのヘッダーを最新版にマイグレーション
+    // 新しい列が増えている場合、既存ヘッダーに無い列を挿入する
+    migrateHeadersIfNeeded(sheet, headers);
   }
   return sheet;
+}
+
+/**
+ * 既存シートのヘッダーを最新版に合わせる。
+ * - headers にあって既存ヘッダーに無い列を、headers での位置に「列挿入」して追加
+ * - 既存ヘッダーで headers に無い列は触らない（追加方向のみ・既存データを尊重）
+ * - 1回の実行で複数列追加されても順序を保つ
+ */
+function migrateHeadersIfNeeded(sheet, headers) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol === 0) {
+    // ヘッダー無しのシート（事実上空）→ 最新ヘッダーで初期化
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return;
+  }
+  var current = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (v) {
+    return v === null || v === undefined ? '' : String(v);
+  });
+
+  for (var i = 0; i < headers.length; i++) {
+    var name = headers[i];
+    if (current.indexOf(name) !== -1) continue;
+    // 挿入位置 = headers での位置（1始まり）
+    var insertAt = i + 1;
+    if (insertAt > sheet.getLastColumn() + 1) insertAt = sheet.getLastColumn() + 1;
+    sheet.insertColumnBefore(insertAt);
+    sheet.getRange(1, insertAt).setValue(name).setFontWeight('bold');
+    // current を更新（次のループでの位置計算用）
+    current.splice(insertAt - 1, 0, name);
+  }
 }
 
 var CHECKIN_HEADERS = [
