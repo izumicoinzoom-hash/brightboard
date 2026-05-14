@@ -1,12 +1,19 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   AlertTriangle, Search, Settings, Bell, ChevronDown, ChevronLeft, ChevronRight, Layout,
   Car, PaintRoller, Wrench, X, FileText, CheckSquare, Paperclip, Truck, Calendar, MessageCircle, Pencil, Mailbox, History,
   Camera as CameraIcon,
-  CheckCircle2
+  CheckCircle2,
+  Ban, Undo2
 } from 'lucide-react';
 import CameraCapture from './CameraCapture';
 import { seedDemoCards, clearDemoCards } from './devSeedData';
+import RepairCancelledModal from './RepairCancelledModal.jsx';
+import {
+  LATER_STAGE_STATUSES,
+  requiresRepairCancelledConfirm,
+  shouldAutoClearRepairCancelled
+} from './lib/stages.js';
 import {
   getFirebaseAuth,
   getFirestoreDb,
@@ -2558,6 +2565,20 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
     if (firstDifferent) setNextColumnId(firstDifferent.id);
   }, [task, boardColumns, nfcTargetBoardId]);
 
+  // NFC専用画面でも修理中止確認モーダルを表示するため、ローカルにモーダル状態を持つ
+  // （NfcStandalonePage は KanbanApp の子ではないため props 経由ができない）
+  const [nfcRepairCancelledModal, setNfcRepairCancelledModal] = useState({
+    open: false,
+    task: null,
+    resolve: null,
+  });
+  const closeNfcModalWithChoice = (choice) => {
+    setNfcRepairCancelledModal((prev) => {
+      if (prev.resolve) prev.resolve(choice);
+      return { open: false, task: null, resolve: null };
+    });
+  };
+
   const handleMove = async () => {
     if (!task) return;
     const col = boardColumns.find((c) => c.id === nextColumnId);
@@ -2569,10 +2590,27 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
     setError('');
     setSuccess('');
     try {
-      const updated = transitionTaskStatusWithOperator(task, primaryStatus, {}, currentUser || null);
+      let extra = {};
+      // 自動 false 化（修理中止カードが再進行）
+      if (shouldAutoClearRepairCancelled(task, primaryStatus)) {
+        extra = { repairCancelled: false };
+      } else if (requiresRepairCancelledConfirm(task, primaryStatus)) {
+        // 確認モーダル
+        const choice = await new Promise((resolve) => {
+          setNfcRepairCancelledModal({ open: true, task, resolve });
+        });
+        if (choice === 'revert') {
+          setIsSaving(false);
+          return;
+        }
+        if (choice === 'cancelled') {
+          extra = { repairCancelled: true };
+        }
+      }
+      const updated = transitionTaskStatusWithOperator(task, primaryStatus, extra, currentUser || null);
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       if (isFirebaseConfigured()) {
-        await upsertDocument('boards/main/tasks', updated.id, updated, { allowDuringNfc: true });
+        await upsertDocument('boards/main/tasks', updated.id, updated, { allowDuringNfc: true, reason: 'ui_task_edit' });
       }
       setSuccess('列を移動しました。');
       setTimeout(() => setSuccess(''), 3000);
@@ -2588,6 +2626,13 @@ function NfcStandalonePage({ currentUser = 'ログインユーザー', onLogout,
 
   return (
     <div className={baseClasses}>
+      <RepairCancelledModal
+        open={nfcRepairCancelledModal.open}
+        task={nfcRepairCancelledModal.task}
+        remainingCount={0}
+        onCancel={() => closeNfcModalWithChoice('cancelled')}
+        onRevert={() => closeNfcModalWithChoice('revert')}
+      />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-4">
           <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white" />
@@ -2953,15 +2998,12 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
   }, [deliveryHistoryFiltered]);
 
   // --- 異常検知: 後工程にいたカードが入庫済みに戻っている場合を検出 ---
-  const LATER_STAGE_STATUSES = new Set([
-    'b_wait', 'b_doing', 'b_done_p_wait', 'p_only', 'prep', 'prep_done', 'prep_p',
-    'painting', 'assembly_wait', 'assembly', 'polish', 'polishing',
-    'completed', 'assembly_done_both', 'assembly_done_nuri', 'polish_done',
-    'delivery_wait', 'delivery_today', 'delivered_unpaid', 'delivered_paid'
-  ]);
+  // LATER_STAGE_STATUSES は ./lib/stages.js から import（重複定義を排除）
   const anomalousReceivedTasks = useMemo(() => {
     return tasks.filter(t => {
       if (!t || t.status !== 'received') return false;
+      // 修理中止フラグが立っているカードは検知対象外（意図的に入庫済みに戻されている）
+      if (t.repairCancelled === true) return false;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
       // 後工程のステータスを経たことがあるのに received に戻っているカードを検出
       return hist.some(h => h && LATER_STAGE_STATUSES.has(h.status));
@@ -2979,6 +3021,8 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     let restoredCount = 0;
     setTasks(prev => prev.map(t => {
       if (!t || t.status !== 'received') return t;
+      // 二重防御: 修理中止フラグが立っているカードは復元対象外
+      if (t.repairCancelled === true) return t;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
       if (!hist.some(h => h && LATER_STAGE_STATUSES.has(h.status))) return t;
       // statusHistory を逆順で走査し、received 以外の最新ステータスを復元先にする
@@ -3011,7 +3055,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     showSettingsToast('バックアップをダウンロードしました');
   };
 
-  const restoreFromDeliveryHistory = (taskId) => {
+  const restoreFromDeliveryHistory = async (taskId) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.status !== 'completed') return;
     // 復元先は納車ボードのステータスのみ許可（他ボードのステータスに戻ることを防止）
@@ -3023,10 +3067,13 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       const lastDeliveryEntry = [...hist].reverse().find(h => h && DELIVERY_VALID_RESTORE.has(h.status));
       prevStatus = lastDeliveryEntry ? lastDeliveryEntry.status : 'delivery_wait';
     }
-    const updated = transitionTaskStatus(task, prevStatus);
+    // 納車履歴からの復元は後工程→received ではないので confirm 通常発火しないが、
+    // 統一性のため wrapper 経由（auto-clear が効くため、修理中止カードが復活した場合も対応）
+    const updated = await transitionTaskStatusWithConfirm(task, prevStatus, {});
+    if (!updated) return;
     setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     if (isFirebaseConfigured()) {
-      upsertDocument('boards/main/tasks', updated.id, updated);
+      upsertDocument('boards/main/tasks', updated.id, updated, { reason: 'ui_task_edit' });
     }
   };
   const handleMasterDeleteTask = (taskId) => {
@@ -3515,7 +3562,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       }}
       onClick={() => setSelectedTaskId(task.id)}
       title={task.description || ''}
-      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 ${isDragOnly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing hover:bg-gray-50'} relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'}`}
+      className={`${task.color || 'bg-white'} rounded shadow-sm border p-2 ${isDragOnly ? 'cursor-default' : 'cursor-pointer active:cursor-grabbing hover:bg-gray-50'} relative overflow-hidden group ${selectedTaskId === task.id ? 'border-2 border-red-500 ring-1 ring-red-500 ring-opacity-50' : 'border-gray-200'} ${task.repairCancelled === true ? 'opacity-70 grayscale-[20%]' : ''}`}
     >
       {task.color !== 'bg-white' && <div className="absolute left-0 top-0 bottom-0 w-1 bg-black opacity-10"></div>}
       <div className="text-xs font-medium text-gray-800 mb-1 leading-tight">
@@ -3528,6 +3575,15 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
               <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-gray-300 text-gray-800 text-[10px] font-medium" title="入庫ジャンル詳細">{entryDetailInitial}</span>
             )}
           </div>
+          {task.repairCancelled === true && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-rose-50 text-rose-700 ring-1 ring-rose-200 flex-shrink-0"
+              title="修理中止"
+            >
+              <Ban size={12} strokeWidth={2} />
+              修理中止
+            </span>
+          )}
           {hasLoaner && (() => {
             const info = computeLoanerDayInfo(task);
             const letter = task.loanerType === 'other_rental' ? '他' : task.loanerType === 'rental' ? 'レ' : '代';
@@ -3855,41 +3911,65 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     });
   }, [tasks]);
 
-  const redistributeUnscheduledByInDate = () => {
+  const redistributeUnscheduledByInDate = async () => {
     if (unscheduledWithInDate.length === 0) return;
     const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-    setTasks(prev => prev.map(t => {
-      if (!t || t.status !== 'unscheduled' || !t.inDate) return t;
+    // Promise.all で事前計算: 曜日列遷移は後工程→received ではないので
+    // 確認モーダルは発火しないが、shouldAutoClearRepairCancelled は dayStatus が
+    // later-stage ではないため対象外。実質 transitionTaskStatus と同等。
+    const candidates = tasks.filter(t => {
+      if (!t || t.status !== 'unscheduled' || !t.inDate) return false;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
-      // 他ボード由来のカードは曜日振り分けしない（別の復旧ボタンで対応）
-      if (hist.some(h => h && h.status && !PLANNING_STATUSES.has(h.status))) return t;
+      if (hist.some(h => h && h.status && !PLANNING_STATUSES.has(h.status))) return false;
       const d = new Date(t.inDate);
-      if (Number.isNaN(d.getTime())) return t;
+      if (Number.isNaN(d.getTime())) return false;
       const dayStatus = dayNames[d.getDay()];
-      if (!dayStatus) return t;
-      const updated = transitionTaskStatus(t, dayStatus, { ...t, status: dayStatus });
-      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
-      return updated;
+      return !!dayStatus;
+    });
+    const results = await Promise.all(candidates.map(async (t) => {
+      const d = new Date(t.inDate);
+      const dayStatus = dayNames[d.getDay()];
+      const updated = await transitionTaskStatusWithConfirm(t, dayStatus, { ...t, status: dayStatus });
+      return updated ? { id: t.id, updated } : null;
     }));
+    const updatesById = new Map();
+    results.forEach(r => { if (r) updatesById.set(r.id, r.updated); });
+    setTasks(prev => prev.map(t => updatesById.has(t.id) ? updatesById.get(t.id) : t));
+    if (isFirebaseConfigured()) {
+      updatesById.forEach((updated) => {
+        upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
+      });
+    }
     showSettingsToast(`入庫予約の${unscheduledWithInDate.length}件を曜日列へ振り分けました`);
   };
 
-  const restoreUnscheduledToPreviousColumn = () => {
+  const restoreUnscheduledToPreviousColumn = async () => {
     if (unscheduledFromOtherBoard.length === 0) return;
     const msg = `他ボードから入庫日未定に来たカード ${unscheduledFromOtherBoard.length} 件を、直前の工程（鈑金・塗装・納車完了など）に戻します。よろしいですか？`;
     if (!window.confirm(msg)) return;
-    setTasks(prev => prev.map(t => {
-      if (!t || t.status !== 'unscheduled') return t;
+    // 復元先は履歴から拾うため later-stage を含み得る → auto-clear が効く可能性あり。
+    // 後工程→received は発生しないので確認モーダルは出ない（unscheduled は later-stage ではない）。
+    const candidates = tasks.filter(t => {
+      if (!t || t.status !== 'unscheduled') return false;
       const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
-      if (hist.length === 0) return t;
-      // 全履歴を逆順で走査し、最も新しい非planningステータスを復元先にする
+      if (hist.length === 0) return false;
       const restoreEntry = [...hist].reverse().find(h => h && h.status && !PLANNING_STATUSES.has(h.status));
-      if (!restoreEntry) return t;
-      const restoreStatus = restoreEntry.status;
-      const updated = transitionTaskStatus(t, restoreStatus);
-      if (isFirebaseConfigured()) upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
-      return updated;
+      return !!restoreEntry;
+    });
+    const results = await Promise.all(candidates.map(async (t) => {
+      const hist = Array.isArray(t.statusHistory) ? t.statusHistory : [];
+      const restoreEntry = [...hist].reverse().find(h => h && h.status && !PLANNING_STATUSES.has(h.status));
+      const updated = await transitionTaskStatusWithConfirm(t, restoreEntry.status, {});
+      return updated ? { id: t.id, updated } : null;
     }));
+    const updatesById = new Map();
+    results.forEach(r => { if (r) updatesById.set(r.id, r.updated); });
+    setTasks(prev => prev.map(t => updatesById.has(t.id) ? updatesById.get(t.id) : t));
+    if (isFirebaseConfigured()) {
+      updatesById.forEach((updated) => {
+        upsertDocument('boards/main/tasks', updated.id, updated, { allowBulk: true }).catch(() => {});
+      });
+    }
     showSettingsToast(`他ボードから来た${unscheduledFromOtherBoard.length}件を直前の工程に戻しました`);
   };
 
@@ -3964,6 +4044,56 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     return transitionTaskStatusWithOperator(task, newStatus, extra, operatorName);
   };
 
+  // --- 修理中止フラグ確認モーダル: async wrapper ---
+  // 「後工程経験ありで received に戻す」遷移時にユーザー確認モーダルを表示する。
+  // 呼出元は await transitionTaskStatusWithConfirm(task, status, extra) で使い、
+  // 戻り値が null の場合（=「誤操作。元に戻す」）は setTasks/upsertDocument を実行しない。
+  //
+  // バッチDnDのモーダルキュー化・楽観ロック衝突時の location.reload・30秒Undo統合は
+  // 今回スコープ外（後段チケット）。本実装は単発遷移の救済のみを対象とする。
+  const [repairCancelledModal, setRepairCancelledModal] = useState({
+    open: false,
+    task: null,
+    remainingCount: 0,
+    resolve: null,
+  });
+
+  const openRepairCancelledModal = useCallback((task, remainingCount = 0) => {
+    return new Promise((resolve) => {
+      setRepairCancelledModal({ open: true, task, remainingCount, resolve });
+    });
+  }, []);
+
+  const closeModalWithChoice = useCallback((choice) => {
+    setRepairCancelledModal((prev) => {
+      if (prev.resolve) prev.resolve(choice);
+      return { open: false, task: null, remainingCount: 0, resolve: null };
+    });
+  }, []);
+
+  const transitionTaskStatusWithConfirm = useCallback(
+    async (task, newStatus, extra = {}) => {
+      // 自動 false 化（修理中止カードが再進行した場合のフラグクリア）
+      if (shouldAutoClearRepairCancelled(task, newStatus)) {
+        return transitionTaskStatus(task, newStatus, { ...extra, repairCancelled: false });
+      }
+      // 確認モーダル（後工程経験あり → received への遷移）
+      if (requiresRepairCancelledConfirm(task, newStatus)) {
+        const remainingCount = (extra && typeof extra.remainingCount === 'number')
+          ? extra.remainingCount
+          : 0;
+        const choice = await openRepairCancelledModal(task, remainingCount);
+        if (choice === 'revert') return null; // 呼出側は setTasks/upsert しない
+        if (choice === 'cancelled') {
+          return transitionTaskStatus(task, newStatus, { ...extra, repairCancelled: true });
+        }
+      }
+      return transitionTaskStatus(task, newStatus, extra);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openRepairCancelledModal, currentUser]
+  );
+
   const handleDragStart = (e, id) => {
     if (isDragOnly) return;
     setDraggedTaskId(id);
@@ -3980,7 +4110,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     e.target.addEventListener('dragend', cleanup);
   };
   const handleDragOver = (e) => { e.preventDefault(); if (!isDragOnly) e.dataTransfer.dropEffect = 'move'; };
-  const handleDrop = (e, col) => {
+  const handleDrop = async (e, col) => {
     e.preventDefault();
     if (isDragOnly || !draggedTaskId) return;
     const status = getColumnPrimaryStatus(col);
@@ -4014,13 +4144,25 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
       const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
       newInDate = `${y}-${m}-${day}`;
     }
-    const base = status && status !== currentTask.status
-      ? transitionTaskStatus(currentTask, status)
-      : { ...currentTask };
+    let base;
+    if (status && status !== currentTask.status) {
+      // 修理中止フラグ確認モーダル経由（後工程→received で発火）
+      const transitioned = await transitionTaskStatusWithConfirm(currentTask, status, {
+        sourceStatus: currentTask.status,
+      });
+      if (!transitioned) {
+        // ユーザーが「誤操作。元の列に戻す」を選択 → setTasks/upsert は一切しない
+        setDraggedTaskId(null);
+        return;
+      }
+      base = transitioned;
+    } else {
+      base = { ...currentTask };
+    }
     const updatedTask = newInDate ? { ...base, inDate: newInDate } : base;
     setTasks(prev => prev.map(t => (t.id === draggedTaskId ? updatedTask : t)));
     if (isFirebaseConfigured()) {
-      upsertDocument('boards/main/tasks', updatedTask.id, updatedTask);
+      upsertDocument('boards/main/tasks', updatedTask.id, updatedTask, { reason: 'ui_task_edit' });
       if (shouldSyncToSheetOnStatusChange(currentTask.status, updatedTask.status)) {
         syncCardToSheet(updatedTask);
       }
@@ -4091,41 +4233,48 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     }
   };
 
-  const handleTaskUpdate = (updatedTask) => {
+  const handleTaskUpdate = async (updatedTask) => {
     const prevTask = tasks.find(t => t.id === updatedTask.id) || null;
+    if (!prevTask) {
+      // 既存タスクが見つからない場合は従来の単純マージ
+      setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+      return;
+    }
     // setTasks 内で処理した結果を保持し、Firestore にも同じデータを書き込む
     let processedTask = null;
-    setTasks(prev => prev.map(t => {
-      if (t.id !== updatedTask.id) return t;
-      // 入庫ボードでは、入庫日が入ったカードを「入庫日未定」のままにしないよう、曜日カラムへ自動で移動
-      // ただし、他ボード由来のステータスを持つカードは巻き込まない
-      const PLANNING_STATUSES_SET = new Set(['unscheduled', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun', 'received']);
-      if (currentBoardId === 'planning' && PLANNING_STATUSES_SET.has(t.status) && updatedTask.inDate && (!updatedTask.status || updatedTask.status === t.status)) {
-        const d = new Date(updatedTask.inDate);
-        if (!Number.isNaN(d.getTime())) {
-          const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-          const nextStatus = dayNames[d.getDay()];
-          if (nextStatus && nextStatus !== t.status) {
-            const merged = { ...t, ...updatedTask, status: nextStatus };
-            processedTask = transitionTaskStatus(t, nextStatus, merged);
-            return processedTask;
-          }
+    const PLANNING_STATUSES_SET = new Set(['unscheduled', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun', 'received']);
+    // 入庫ボードでは、入庫日が入ったカードを「入庫日未定」のままにしないよう、曜日カラムへ自動で移動
+    // ただし、他ボード由来のステータスを持つカードは巻き込まない
+    if (currentBoardId === 'planning' && PLANNING_STATUSES_SET.has(prevTask.status) && updatedTask.inDate && (!updatedTask.status || updatedTask.status === prevTask.status)) {
+      const d = new Date(updatedTask.inDate);
+      if (!Number.isNaN(d.getTime())) {
+        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const nextStatus = dayNames[d.getDay()];
+        if (nextStatus && nextStatus !== prevTask.status) {
+          const merged = { ...prevTask, ...updatedTask, status: nextStatus };
+          // 曜日列移動は後工程→received の遷移ではないので confirm 不要だが、
+          // 念のため wrapper 経由（auto-clear/no-op 判定もここで効く）
+          processedTask = await transitionTaskStatusWithConfirm(prevTask, nextStatus, merged);
+          if (!processedTask) return; // revert された場合は中断
         }
       }
-      // ステータスが変わる場合は滞在時間を履歴に追加しつつ更新
-      if (updatedTask.status && updatedTask.status !== t.status) {
-        processedTask = transitionTaskStatus(t, updatedTask.status, updatedTask);
-        return processedTask;
-      }
-      // ステータスが変わらない場合はその他の項目だけ上書きし、履歴系は保持
+    }
+    // ステータスが変わる場合は wrapper 経由で確認モーダルを通す
+    if (!processedTask && updatedTask.status && updatedTask.status !== prevTask.status) {
+      processedTask = await transitionTaskStatusWithConfirm(prevTask, updatedTask.status, updatedTask);
+      if (!processedTask) return; // revert された場合は中断（setTasks/upsert しない）
+    }
+    // ステータスが変わらない場合はその他の項目だけ上書きし、履歴系は保持
+    if (!processedTask) {
       processedTask = {
-        ...t,
+        ...prevTask,
         ...updatedTask,
-        statusEnteredAt: t.statusEnteredAt,
-        statusHistory: t.statusHistory
+        statusEnteredAt: prevTask.statusEnteredAt,
+        statusHistory: prevTask.statusHistory,
       };
-      return processedTask;
-    }));
+    }
+    const finalTask = processedTask;
+    setTasks(prev => prev.map(t => (t.id === updatedTask.id ? finalTask : t)));
 
     // Firestore には処理後の正しいデータを書き込む（ステータスや履歴がローカルと一致するようにする）
     const taskToSave = processedTask || updatedTask;
@@ -4195,6 +4344,14 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
 
   return (
     <div className="flex flex-col min-h-[100dvh] h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden relative" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <RepairCancelledModal
+        open={repairCancelledModal.open}
+        task={repairCancelledModal.task}
+        remainingCount={repairCancelledModal.remainingCount}
+        onCancel={() => closeModalWithChoice('cancelled')}
+        onRevert={() => closeModalWithChoice('revert')}
+        onCancelAll={undefined /* バッチ処理は後段チケットで実装 */}
+      />
       {calendarToast && (
         <div className="absolute left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium shadow-lg animate-fade-in" style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}>
           {calendarToast}
