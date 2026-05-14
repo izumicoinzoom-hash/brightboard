@@ -11,17 +11,24 @@ import { getApp } from 'firebase/app';
 import {
   getStorage,
   ref as storageRef,
-  uploadBytesResumable
+  uploadBytesResumable,
+  getDownloadURL,
+  deleteObject
 } from 'firebase/storage';
 import {
   collection,
   addDoc,
+  getDoc,
   getDocs,
   query,
   where,
-  serverTimestamp
+  serverTimestamp,
+  doc as fsDoc,
+  updateDoc
 } from 'firebase/firestore';
-import { getFirestoreDb, getFirebaseAuth } from './firebase';
+import { getFirestoreDb, getFirebaseAuth, isUserAdmin } from './firebase';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 // ---------------------------------------------------------------------------
 // Storage シングルトン
@@ -458,5 +465,138 @@ export async function uploadPhoto(blob, options) {
     });
     console.error('uploadPhoto failed at stage', stage, err);
     throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 削除 (ソフト削除): Storage オブジェクトを物理削除し、Firestore ドキュメントには
+// deletedAt / deletedBy を付ける。監査ログにも記録。
+// 権限: 撮影本人 or admin（env allowlist or users.role=admin）
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {string} photoId
+ * @param {{ uid: string, displayName?: string, email?: string }} currentUser
+ * @param {{ role?: string }|null} userDoc
+ */
+export async function deletePhoto(photoId, currentUser, userDoc) {
+  if (!photoId) throw new Error('deletePhoto: photoId is required');
+  if (!currentUser || !currentUser.uid) {
+    throw new Error('deletePhoto: ログインが必要です');
+  }
+  const db = getFirestoreDb();
+  if (!db) throw new Error('deletePhoto: Firestore not configured');
+
+  const photoRef = fsDoc(db, 'boards/main/photos', photoId);
+  const snap = await getDoc(photoRef);
+  if (!snap.exists()) {
+    throw new Error('deletePhoto: 該当写真が見つかりません');
+  }
+  const photo = snap.data();
+
+  const isOwn = photo.capturedBy === currentUser.uid;
+  const admin = isUserAdmin(currentUser, userDoc);
+  if (!isOwn && !admin) {
+    throw new Error('権限がありません（撮影本人または管理者のみ削除可）');
+  }
+
+  // 1. Storage から物理削除（失敗してもメタデータ削除は続行・既に消えている可能性）
+  try {
+    const storage = getFireStorage();
+    await deleteObject(storageRef(storage, photo.storagePath));
+  } catch (e) {
+    console.warn('deletePhoto: Storage 削除に失敗（既に削除済みの可能性）', e);
+  }
+
+  // 2. Firestore ドキュメントにソフト削除フラグ
+  await updateDoc(photoRef, {
+    deletedAt: serverTimestamp(),
+    deletedBy: currentUser.uid,
+  });
+
+  // 3. 監査ログ
+  await writeAuditLog({
+    photoId,
+    taskId: photo.taskId,
+    action: 'delete',
+    userId: currentUser.uid,
+    userName: currentUser.displayName || currentUser.email || '',
+    metadata: {
+      filename: photo.filename,
+      phase: photo.phase,
+      storagePath: photo.storagePath,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// ZIP 一括 DL
+// - 50枚を超える場合は zip1/zip2... に自動分割
+// - 1枚ごとに Storage から fetch して JSZip に追加
+// - 監査ログに `download` を記録（zipIndex / count メタ）
+// ---------------------------------------------------------------------------
+
+const ZIP_CHUNK = 50;
+
+/**
+ * @param {Array<{id, storagePath, filename, phase, mediaType}>} photos
+ * @param {{ id?: string, assignee?: string, maker?: string, car?: string, number?: string|number }} task
+ * @param {{
+ *   user: { uid: string, displayName?: string, email?: string },
+ *   onProgress?: (current: number, total: number) => void
+ * }} opts
+ */
+export async function downloadPhotosAsZip(photos, task, opts) {
+  if (!Array.isArray(photos) || photos.length === 0) {
+    throw new Error('downloadPhotosAsZip: 対象写真がありません');
+  }
+  const user = opts?.user || {};
+  const onProgress = typeof opts?.onProgress === 'function' ? opts.onProgress : null;
+  const total = photos.length;
+
+  const folderBase = generateFolderName(task || {});
+  const today = formatYYYYMMDD(new Date());
+  const storage = getFireStorage();
+
+  const chunks = [];
+  for (let i = 0; i < photos.length; i += ZIP_CHUNK) {
+    chunks.push(photos.slice(i, i + ZIP_CHUNK));
+  }
+
+  let fetchedCount = 0;
+
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const chunk = chunks[idx];
+    const zip = new JSZip();
+    for (const photo of chunk) {
+      try {
+        const url = await getDownloadURL(storageRef(storage, photo.storagePath));
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        zip.file(photo.filename, blob);
+      } catch (e) {
+        console.warn('downloadPhotosAsZip: fetch失敗', photo.filename, e);
+      }
+      fetchedCount++;
+      if (onProgress) onProgress(fetchedCount, total);
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const suffix = chunks.length > 1 ? `_zip${idx + 1}` : '';
+    saveAs(blob, `${folderBase}_${today}${suffix}.zip`);
+
+    // 監査ログ
+    await writeAuditLog({
+      photoId: null,
+      taskId: task?.id || null,
+      action: 'download',
+      userId: user.uid || null,
+      userName: user.displayName || user.email || '',
+      metadata: {
+        count: chunk.length,
+        zipIndex: idx + 1,
+        zipTotal: chunks.length,
+      },
+    });
   }
 }

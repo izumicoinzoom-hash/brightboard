@@ -210,6 +210,7 @@ var DELIVERY_HEADERS = [
   '受付担当', '鈑金担当', '塗装担当',
   '代車タイプ', '代車ID',
   '総サイクルタイム(暦日)', '総サイクルタイム(営業日)',
+  '売上金額', '部品代', '工賃',
   '備考'
 ];
 
@@ -369,6 +370,9 @@ function writeDeliveryRecord(task) {
     task.loanerCarId || '',
     totalCal,
     totalBiz,
+    task.salesAmount || '',
+    task.partsAmount || '',
+    task.laborAmount || '',
     task.description || '',
   ];
 

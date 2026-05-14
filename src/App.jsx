@@ -20,8 +20,19 @@ import {
   upsertDocument,
   safeUpsertTask,
   deleteDocument,
-  setCurrentActor
+  setCurrentActor,
+  isUserAdmin
 } from './firebase';
+import { deletePhoto, downloadPhotosAsZip } from './photoStorage';
+import { getStorage, ref as storageRef, getDownloadURL } from 'firebase/storage';
+import {
+  collection as fsCollection,
+  query as fsQuery,
+  where as fsWhere,
+  orderBy as fsOrderBy,
+  limit as fsLimit,
+  onSnapshot as fsOnSnapshot
+} from 'firebase/firestore';
 import { IMEInput, IMETextarea } from './IMEInput.jsx';
 import { InvoiceModal, InvoiceSettingsPanel } from './InvoiceModal.jsx';
 
@@ -607,7 +618,8 @@ async function syncCycleTimeToSheet(task) {
 }
 
 const shouldSyncCycleTime = (prevStatus, nextStatus) => {
-  if (!CYCLETIME_SHEET_URL) return false;
+  // 専用URL(CYCLETIME_SHEET_URL)が無くても、共通(SHEET_SYNC_URL)で代用可
+  if (!CYCLETIME_SHEET_URL && !SHEET_SYNC_URL) return false;
   if (!nextStatus) return false;
   // 「納車済み-支払い待ち」または「納車済-支払い済み」に到達したタイミングで出力
   return !CYCLETIME_TRIGGER_STATUSES.has(prevStatus) && CYCLETIME_TRIGGER_STATUSES.has(nextStatus);
@@ -3327,7 +3339,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
     const unsub = subscribeCollection('users', (items) => {
       const list = (items || [])
         .filter((u) => (u.email || '').trim())
-        .map((u) => ({ id: u.id, email: (u.email || '').toLowerCase(), displayName: u.displayName || u.email || '', lastLoginAt: u.lastLoginAt || '' }))
+        .map((u) => ({ id: u.id, email: (u.email || '').toLowerCase(), displayName: u.displayName || u.email || '', lastLoginAt: u.lastLoginAt || '', role: u.role || 'member' }))
         .sort((a, b) => (b.lastLoginAt || '').localeCompare(a.lastLoginAt || ''));
       setPastLoginUsers(list);
     });
@@ -4903,6 +4915,7 @@ function KanbanApp({ currentUser = 'ログインユーザー', currentUserEmail 
                     usedBinderNumbers={new Set(tasks.filter(t => t.id !== selectedTask?.id && t.binderNumber).map(t => t.binderNumber))}
                     currentUser={currentUser}
                     currentUserEmail={currentUserEmail}
+                    currentUserDoc={pastLoginUsers.find(u => u.email === (currentUserEmail || '').toLowerCase()) || null}
                   />
                 </div>
               )}
@@ -5882,7 +5895,250 @@ function Accordion({ title, children, defaultOpen = true }) {
 
 const MASTER_PASSCODE = '0514';
 
-function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false, usedBinderNumbers = new Set(), currentUser = '', currentUserEmail = '' }) {
+// ---------------------------------------------------------------------------
+// 撮影済み写真ギャラリー（フェーズタグタブ＋削除＋ZIP DL）
+// ---------------------------------------------------------------------------
+const PHASE_TABS = [
+  { key: 'ALL', label: 'すべて' },
+  { key: 'IN', label: 'IN(入庫)' },
+  { key: 'B', label: 'B(鈑金)' },
+  { key: 'P', label: 'P(塗装)' },
+  { key: 'OUT', label: 'OUT(納車)' },
+];
+
+function PhotoThumb({ photo, canDelete, onDelete, isBusy }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const storage = getStorage();
+        const u = await getDownloadURL(storageRef(storage, photo.storagePath));
+        if (!cancelled) setUrl(u);
+      } catch (e) {
+        if (!cancelled) setErr(e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [photo.storagePath]);
+
+  return (
+    <div className="relative border border-gray-200 rounded-lg overflow-hidden bg-gray-50 group/photo">
+      {err ? (
+        <div className="w-[140px] h-[100px] flex items-center justify-center text-xs text-red-500 px-2 text-center">読込失敗</div>
+      ) : !url ? (
+        <div className="w-[140px] h-[100px] flex items-center justify-center text-xs text-gray-400">読込中…</div>
+      ) : photo.mediaType === 'video' ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+          <video src={url} className="w-[140px] h-[100px] object-cover bg-black" muted preload="metadata" />
+        </a>
+      ) : (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+          <img src={url} alt={photo.filename} className="w-[140px] h-[100px] object-cover" loading="lazy" />
+        </a>
+      )}
+      <div className="px-1.5 py-0.5 text-[10px] text-gray-600 truncate" title={photo.filename}>
+        <span className="inline-block px-1 rounded bg-blue-100 text-blue-700 mr-1">{photo.phase}</span>
+        {photo.filename}
+      </div>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(photo)}
+          disabled={isBusy}
+          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover/photo:opacity-100 hover:opacity-100 transition-opacity disabled:opacity-50"
+          title="削除"
+        >×</button>
+      )}
+    </div>
+  );
+}
+
+function TaskPhotosGallery({ task, currentUser, currentUserEmail, currentUserDoc, isAdmin, isMobile }) {
+  const [photos, setPhotos] = useState([]);
+  const [phase, setPhase] = useState('ALL');
+  const [busyId, setBusyId] = useState(null);
+  const [zipBusy, setZipBusy] = useState(null);
+  const [zipMsg, setZipMsg] = useState('');
+
+  useEffect(() => {
+    if (!task?.id) return () => {};
+    const db = getFirestoreDb();
+    if (!db) return () => {};
+    const q = fsQuery(
+      fsCollection(db, 'boards/main/photos'),
+      fsWhere('taskId', '==', task.id),
+    );
+    const unsub = fsOnSnapshot(q, (snap) => {
+      const items = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((p) => !p.deletedAt);
+      items.sort((a, b) => {
+        const ta = a.capturedAt?.seconds || 0;
+        const tb = b.capturedAt?.seconds || 0;
+        return tb - ta;
+      });
+      setPhotos(items);
+    }, (err) => {
+      console.warn('[photos onSnapshot] error', err);
+    });
+    return () => unsub();
+  }, [task?.id]);
+
+  const visible = phase === 'ALL' ? photos : photos.filter((p) => p.phase === phase);
+  const currentUid = (() => {
+    const auth = getFirebaseAuth();
+    return auth?.currentUser?.uid || null;
+  })();
+
+  const canDeletePhoto = (photo) => {
+    if (isMobile) return false; // モバイル/閲覧専用は削除不可
+    if (isAdmin) return true;
+    if (currentUid && photo.capturedBy === currentUid) return true;
+    return false;
+  };
+
+  const handleDelete = async (photo) => {
+    if (!window.confirm(`「${photo.filename}」を削除します。よろしいですか？`)) return;
+    setBusyId(photo.id);
+    try {
+      await deletePhoto(photo.id, { uid: currentUid, displayName: currentUser, email: currentUserEmail }, currentUserDoc);
+    } catch (e) {
+      window.alert('削除に失敗しました: ' + (e?.message || e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleZip = async () => {
+    if (!visible.length) {
+      window.alert('対象の写真がありません');
+      return;
+    }
+    setZipBusy(0);
+    setZipMsg(`0 / ${visible.length} 取得中…`);
+    try {
+      await downloadPhotosAsZip(visible, task, {
+        user: { uid: currentUid, displayName: currentUser, email: currentUserEmail },
+        onProgress: (n, total) => {
+          setZipBusy(n);
+          setZipMsg(`${n} / ${total} 取得中…`);
+        },
+      });
+      setZipMsg('完了');
+      setTimeout(() => { setZipBusy(null); setZipMsg(''); }, 2000);
+    } catch (e) {
+      window.alert('ZIP生成に失敗しました: ' + (e?.message || e));
+      setZipBusy(null);
+      setZipMsg('');
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1 items-center">
+        {PHASE_TABS.map((t) => {
+          const count = t.key === 'ALL' ? photos.length : photos.filter((p) => p.phase === t.key).length;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setPhase(t.key)}
+              className={`px-2 py-0.5 rounded text-xs ${phase === t.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            >{t.label} ({count})</button>
+          );
+        })}
+        {!isMobile && isAdmin && (
+          <button
+            type="button"
+            onClick={handleZip}
+            disabled={zipBusy !== null}
+            className="ml-auto px-3 py-1 rounded text-xs bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+            title="表示中のフェーズの写真をZIPでダウンロード"
+          >
+            {zipBusy !== null ? zipMsg : `${phase === 'ALL' ? '全画像' : phase} ZIP DL`}
+          </button>
+        )}
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="text-xs text-gray-500 py-3 text-center">写真はまだありません</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {visible.map((p) => (
+            <PhotoThumb
+              key={p.id}
+              photo={p}
+              canDelete={canDeletePhoto(p)}
+              onDelete={handleDelete}
+              isBusy={busyId === p.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 撮影履歴（監査ログ閲覧・admin限定）
+// ---------------------------------------------------------------------------
+function PhotoAuditLogPanel({ task }) {
+  const [logs, setLogs] = useState([]);
+  useEffect(() => {
+    if (!task?.id) return () => {};
+    const db = getFirestoreDb();
+    if (!db) return () => {};
+    const q = fsQuery(
+      fsCollection(db, 'boards/main/photo_audit_log'),
+      fsWhere('taskId', '==', task.id),
+      fsOrderBy('timestamp', 'desc'),
+      fsLimit(50),
+    );
+    const unsub = fsOnSnapshot(q, (snap) => {
+      setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.warn('[photo_audit_log onSnapshot] error', err);
+    });
+    return () => unsub();
+  }, [task?.id]);
+
+  const actionStyle = {
+    create: 'bg-emerald-100 text-emerald-700',
+    create_failed: 'bg-red-100 text-red-700',
+    delete: 'bg-amber-100 text-amber-700',
+    download: 'bg-blue-100 text-blue-700',
+  };
+
+  if (!logs.length) {
+    return <p className="text-xs text-gray-500 py-2">履歴はまだありません</p>;
+  }
+
+  return (
+    <div className="space-y-1 max-h-64 overflow-y-auto">
+      {logs.map((l) => {
+        const ts = l.timestamp?.seconds ? new Date(l.timestamp.seconds * 1000) : null;
+        const tsStr = ts ? `${ts.getMonth()+1}/${ts.getDate()} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '-';
+        const cls = actionStyle[l.action] || 'bg-gray-100 text-gray-700';
+        return (
+          <div key={l.id} className="flex items-center gap-2 text-xs border-b border-gray-100 py-1">
+            <span className="text-gray-500 w-20 flex-shrink-0">{tsStr}</span>
+            <span className={`px-1.5 py-0.5 rounded ${cls} w-24 text-center flex-shrink-0`}>{l.action}</span>
+            <span className="text-gray-600 truncate flex-1" title={l.metadata?.filename || ''}>
+              {l.metadata?.filename || l.photoId || ''}
+              {l.metadata?.phase && <span className="ml-1 text-gray-400">[{l.metadata.phase}]</span>}
+            </span>
+            <span className="text-gray-500 truncate w-24 flex-shrink-0" title={l.userName || ''}>{l.userName || '-'}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultReceptionStaff = 'ログインユーザー', staffOptionsConfig = null, onClose, onUpdate, onMasterDelete, currentBoardId = null, boardColumns = [], getColumnStatuses = null, getColumnPrimaryStatus = null, moveTargetOptions = [], useIndonesian = false, viewOnly = false, usedBinderNumbers = new Set(), currentUser = '', currentUserEmail = '', currentUserDoc = null }) {
+  const isAdmin = isUserAdmin({ email: currentUserEmail }, currentUserDoc);
   const [activeDotIndex, setActiveDotIndex] = useState(0);
   const [selectedMoveTarget, setSelectedMoveTarget] = useState('');
   const [showPrevNextMove, setShowPrevNextMove] = useState(false);
@@ -6279,6 +6535,38 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
             />
           </Accordion>
 
+          <Accordion title="金額（納車記録シートへ連携）" defaultOpen={false}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                { key: 'salesAmount', label: '売上金額' },
+                { key: 'partsAmount', label: '部品代' },
+                { key: 'laborAmount', label: '工賃' },
+              ].map(({ key, label }) => (
+                <label key={key} className="flex flex-col text-xs text-gray-500">
+                  <span className="mb-1">{label}</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      min="0"
+                      value={task[key] !== undefined && task[key] !== null ? task[key] : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next = raw === '' ? '' : Number(raw);
+                        effectiveOnUpdate({ ...task, [key]: next });
+                      }}
+                      className="flex-1 min-w-0 text-sm text-right p-2 border border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:outline-none rounded bg-white"
+                      placeholder="0"
+                    />
+                    <span className="text-xs text-gray-500">円</span>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">納車済み-支払い待ちに移動した時点でスプレッドシート「納車記録」へ転記されます。</p>
+          </Accordion>
+
           <Accordion title="撮影（鈑金フェーズ別）" defaultOpen={true}>
             <div className="space-y-3">
               <button
@@ -6291,9 +6579,6 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
                 <CameraIcon className="w-5 h-5" />
                 撮影する（IN/B/P/OUT）
               </button>
-              <p className="text-xs text-gray-500">
-                フェーズタグ別にフォルダ自動振り分け。撮影後 PC側で「全画像ZIP」DL予定（Phase 2）。
-              </p>
               {!isCameraAuthed && !viewOnly && (
                 <p className="text-xs text-amber-600">
                   ログインが必要です（Google ログイン後に撮影可能）。
@@ -6305,8 +6590,22 @@ function TaskDetailPanel({ task, fleetCars = [], rentalCompanies = [], defaultRe
                   </a>
                 </p>
               )}
+              <TaskPhotosGallery
+                task={task}
+                currentUser={currentUser}
+                currentUserEmail={currentUserEmail}
+                currentUserDoc={currentUserDoc}
+                isAdmin={isAdmin}
+                isMobile={viewOnly}
+              />
             </div>
           </Accordion>
+
+          {isAdmin && (
+            <Accordion title="撮影履歴（管理者のみ）" defaultOpen={false}>
+              <PhotoAuditLogPanel task={task} />
+            </Accordion>
+          )}
 
           <Accordion title="添付ファイル" defaultOpen={true}>
             <div className="space-y-3">

@@ -114,6 +114,30 @@ export async function signOut() {
   if (a) await firebaseSignOut(a);
 }
 
+// --- 管理者判定: VITE_ADMIN_EMAILS allowlist + users.role 両方併用 ---
+// allowlist は環境変数で素早く切替可能、role は Firestore Console で個別付与。
+// どちらかに該当すれば admin として扱う（フェイルオープン）。
+let _adminEmailsCache = null;
+function getAdminEmailAllowlist() {
+  if (_adminEmailsCache !== null) return _adminEmailsCache;
+  const raw = import.meta.env.VITE_ADMIN_EMAILS || '';
+  _adminEmailsCache = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return _adminEmailsCache;
+}
+
+/**
+ * @param {{ email?: string }|null} currentUser - Firebase Auth user or { email }
+ * @param {{ role?: string }|null} userDoc - users/{docId} ドキュメント（任意）
+ * @returns {boolean}
+ */
+export function isUserAdmin(currentUser, userDoc) {
+  if (!currentUser) return false;
+  const email = (currentUser.email || '').toLowerCase();
+  if (email && getAdminEmailAllowlist().includes(email)) return true;
+  if (userDoc && userDoc.role === 'admin') return true;
+  return false;
+}
+
 // --- Firestore: タスク・予約向けの汎用ヘルパー ---
 
 export function subscribeCollection(path, onChange) {

@@ -8,6 +8,14 @@
         { "fieldPath": "phase", "order": "ASCENDING" },
         { "fieldPath": "filename", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "photo_audit_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "taskId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
